@@ -1,0 +1,15 @@
+[project]
+name = "stickynote"
+version = "0.1.0"
+description = "Distributed function memoization"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "typing-extensions>=4.13.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "ruff>=0.11.4",
+]
