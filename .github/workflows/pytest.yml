@@ -1,9 +1,9 @@
-name: pyright
+name: pytest
 
 on: [push]
 
 jobs:
-  lint:
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -15,7 +15,5 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         enable-cache: true
-    - name: Lint
-      run: uv run pyright
-    - name: Check type completeness
-      run: uv run pyright --ignoreexternal --verifytypes stickynote
+    - name: Run tests
+      run: uv run pytest
