@@ -1,7 +1,7 @@
 from stickynote.backends import MemoStorage
 from hashlib import sha256
-from typing import Any, Callable, Self, TypeVar
-from typing_extensions import ParamSpec
+from typing import Any, Callable, TypeVar
+from typing_extensions import ParamSpec, Self
 import pickle
 import base64
 
