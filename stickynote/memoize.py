@@ -1,22 +1,27 @@
-from stickynote.backends import MemoStorage
-from hashlib import sha256
-from typing import Any, Callable, TypeVar
-from typing_extensions import ParamSpec, Self
-import pickle
 import base64
+import pickle
+from typing import Any, Callable, TypeVar
+
+from typing_extensions import ParamSpec, Self
+
+from stickynote.key_strategies import DEFAULT_STRATEGY, MemoKeyStrategy
+from stickynote.storage import MemoStorage
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def memoize(storage: MemoStorage) -> Callable[[Callable[P, R]], Callable[P, R]]:
+def memoize(
+    storage: MemoStorage, key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """
     Decorator to memoize the results of a function.
     """
+
     def decorator(func: Callable[P, R]) -> Callable[P, R]:
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             with MemoBlock(storage) as memo:
-                key = f"{func.__name__}:{_hash_args_kwargs(args, kwargs)}"
+                key = key_strategy.compute(func, args, kwargs)
                 memo.load(key)
                 if memo.hit:
                     return memo.value
@@ -33,6 +38,7 @@ class MemoBlock:
     """
     Context manager to load and save the result of a function to a backend.
     """
+
     def __init__(self, storage: MemoStorage):
         self.storage = storage
         self.hit: bool = False
@@ -57,13 +63,6 @@ class MemoBlock:
         Save the result of a function to the backend.
         """
         self.storage.set(key, _serialize_result(value))
-
-
-def _hash_args_kwargs(args: Any, kwargs: Any) -> str:
-    """
-    Hash the arguments and keyword arguments of a function.
-    """
-    return sha256(f"{args}:{kwargs}".encode()).hexdigest()
 
 
 def _serialize_result(result: Any) -> str:

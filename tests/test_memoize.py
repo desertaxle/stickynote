@@ -1,9 +1,17 @@
+from __future__ import annotations
+
 import base64
 import pickle
+from typing import Any, Dict
+
 from stickynote import memoize
-from stickynote.backends import MemoryStorage
+from stickynote.key_strategies import (
+    Inputs,
+    MemoKeyStrategy,
+    SourceCode,
+)
 from stickynote.memoize import MemoBlock
-from typing import Dict
+from stickynote.storage import MemoryStorage
 
 
 class TestMemoize:
@@ -140,6 +148,160 @@ class TestMemoize:
         # Same args should use cache
         result3 = power(2, 3)
         assert result3 == 8
+        assert call_count == 2
+
+    def test_memoize_with_source_code_strategy(self):
+        """Test that memoize works with the SourceCode strategy."""
+        storage = MemoryStorage()
+        strategy = SourceCode()
+        call_count = 0
+
+        @memoize(storage, key_strategy=strategy)
+        def add(a: int, b: int) -> int:  # pyright: ignore[reportRedeclaration] this is intentional for the test
+            nonlocal call_count
+            call_count += 1
+            return a + b
+
+        # First call should execute the function
+        result1 = add(1, 2)
+        assert result1 == 3
+        assert call_count == 1
+
+        # Second call with same args should use cache
+        result2 = add(1, 2)
+        assert result2 == 3
+        assert call_count == 1  # Call count should not increase
+
+        # Define a function with identical source code
+        @memoize(storage, key_strategy=strategy)
+        def add(a: int, b: int) -> int:  # pyright: ignore[reportRedeclaration] this is intentional for the test
+            nonlocal call_count
+            call_count += 1
+            return a + b
+
+        # This should use the cache since the source code is identical
+        result3 = add(1, 2)
+        assert result3 == 3
+        assert call_count == 1  # Call count should still be 1
+
+    def test_memoize_with_inputs_strategy(self):
+        """Test that memoize works with the Inputs strategy."""
+        storage = MemoryStorage()
+        strategy = Inputs()
+        call_count = 0
+
+        @memoize(storage, key_strategy=strategy)
+        def greet(name: str, prefix: str = "Hello") -> str:
+            nonlocal call_count
+            call_count += 1
+            return f"{prefix}, {name}!"
+
+        # First call
+        result1 = greet("Alice", prefix="Hi")
+        assert result1 == "Hi, Alice!"
+        assert call_count == 1
+
+        # Second call with same kwargs
+        result2 = greet("Alice", prefix="Hi")
+        assert result2 == "Hi, Alice!"
+        assert call_count == 1
+
+        # Different kwargs should not use cache
+        result3 = greet("Alice", prefix="Hello")
+        assert result3 == "Hello, Alice!"
+        assert call_count == 2
+
+    def test_memoize_with_custom_strategy(self):
+        """Test that memoize works with a custom strategy."""
+        storage = MemoryStorage()
+
+        # Create a custom strategy that only uses the function name
+        class FunctionNameStrategy(MemoKeyStrategy):
+            def compute(self, func: Any, args: Any, kwargs: Any) -> str:
+                return func.__name__
+
+        call_count = 0
+
+        @memoize(storage, key_strategy=FunctionNameStrategy())
+        def custom_func(a: int, b: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return a + b
+
+        # First call
+        result1 = custom_func(1, 2)
+        assert result1 == 3
+        assert call_count == 1
+
+        # Second call with different args should still use cache
+        # since our strategy only looks at the function name
+        result2 = custom_func(2, 3)
+        assert result2 == 3  # Should return cached result
+        assert call_count == 1  # Call count should not increase
+
+        # Different function name should not use cache
+        @memoize(storage, key_strategy=FunctionNameStrategy())
+        def another_func(a: int, b: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return a + b
+
+        result3 = another_func(1, 2)
+        assert result3 == 3
+        assert call_count == 2  # Call count should increase
+
+    def test_memoize_with_complex_objects(self):
+        """Test that memoize works with complex objects using the Inputs strategy."""
+        storage = MemoryStorage()
+        strategy = Inputs()
+        call_count = 0
+
+        @memoize(storage, key_strategy=strategy)
+        def process_list(items: list[int], multiplier: int = 1) -> list[int]:
+            nonlocal call_count
+            call_count += 1
+            return [item * multiplier for item in items]
+
+        # First call
+        result1 = process_list([1, 2, 3], multiplier=2)
+        assert result1 == [2, 4, 6]
+        assert call_count == 1
+
+        # Second call with same args
+        result2 = process_list([1, 2, 3], multiplier=2)
+        assert result2 == [2, 4, 6]
+        assert call_count == 1
+
+        # Different args should not use cache
+        result3 = process_list([1, 2, 3], multiplier=3)
+        assert result3 == [3, 6, 9]
+        assert call_count == 2
+
+    def test_memoize_with_none_result(self):
+        """Test that memoize works with None results."""
+        storage = MemoryStorage()
+        strategy = Inputs()
+        call_count = 0
+
+        @memoize(storage, key_strategy=strategy)
+        def return_none(x: int) -> int | None:
+            nonlocal call_count
+            call_count += 1
+            return None if x < 0 else x
+
+        # First call
+        result1 = return_none(-1)
+        assert result1 is None
+        assert call_count == 1
+
+        # Second call with same args
+        result2 = return_none(-1)
+        assert result2 is None
+        assert call_count == 1
+
+        # Different args should not use cache
+        result3 = return_none(1)
+        assert result3 == 1
         assert call_count == 2
 
 
