@@ -6,7 +6,7 @@ import logging
 import pickle
 from typing import Any, Callable
 
-logger = logging.getLogger("stickynote.key_strategies")
+logger: logging.Logger = logging.getLogger("stickynote.key_strategies")
 
 
 class MemoKeyStrategy(abc.ABC):
