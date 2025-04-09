@@ -1,37 +1,60 @@
 import base64
+from functools import partial
 import pickle
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Literal, TypeVar, cast, overload
 
 from typing_extensions import ParamSpec, Self
 
 from stickynote.key_strategies import DEFAULT_STRATEGY, MemoKeyStrategy
-from stickynote.storage import MemoStorage
+from stickynote.storage import DEFAULT_STORAGE, MemoStorage
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
 
+@overload
 def memoize(
-    storage: MemoStorage, key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY
-) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    __fn: Callable[P, R],
+) -> Callable[P, R]: ...
+
+
+@overload
+def memoize(
+    __fn: Literal[None] = None,
+    *,
+    storage: MemoStorage = DEFAULT_STORAGE,
+    key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
+) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+
+
+def memoize(
+    __fn: Callable[P, R] | None = None,
+    *,
+    storage: MemoStorage = DEFAULT_STORAGE,
+    key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
+) -> Callable[[Callable[P, R]], Callable[P, R]] | Callable[P, R]:
     """
     Decorator to memoize the results of a function.
     """
 
-    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+    if __fn is None:
+        return cast(
+            Callable[[Callable[P, R]], Callable[P, R]],
+            partial(memoize, storage=storage, key_strategy=key_strategy),
+        )
+    else:
+
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             with MemoBlock(storage) as memo:
-                key = key_strategy.compute(func, args, kwargs)
+                key = key_strategy.compute(__fn, args, kwargs)
                 memo.load(key)
                 if memo.hit:
                     return memo.value
-                result = func(*args, **kwargs)
+                result = __fn(*args, **kwargs)
                 memo.save(key, result)
                 return result
 
         return wrapper
-
-    return decorator
 
 
 class MemoBlock:
@@ -39,7 +62,7 @@ class MemoBlock:
     Context manager to load and save the result of a function to a backend.
     """
 
-    def __init__(self, storage: MemoStorage):
+    def __init__(self, storage: MemoStorage = DEFAULT_STORAGE):
         self.storage = storage
         self.hit: bool = False
         self.value: Any = None

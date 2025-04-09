@@ -50,3 +50,6 @@ class MemoryStorage(MemoStorage):
         Set the value of a key in the cache.
         """
         self.cache[key] = value
+
+
+DEFAULT_STORAGE: MemoStorage = MemoryStorage()

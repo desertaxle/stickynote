@@ -16,10 +16,9 @@ from stickynote.storage import MemoryStorage
 
 class TestMemoize:
     def test_basic_memoization(self):
-        storage = MemoryStorage()
         call_count = 0
 
-        @memoize(storage)
+        @memoize
         def add(a: int, b: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -39,7 +38,7 @@ class TestMemoize:
         storage = MemoryStorage()
         call_count = 0
 
-        @memoize(storage)
+        @memoize(storage=storage)
         def greet(name: str, prefix: str = "Hello") -> str:
             nonlocal call_count
             call_count += 1
@@ -64,7 +63,7 @@ class TestMemoize:
         storage = MemoryStorage()
         call_count = 0
 
-        @memoize(storage)
+        @memoize(storage=storage)
         def create_dict(a: int, b: int) -> Dict[str, int]:
             nonlocal call_count
             call_count += 1
@@ -84,7 +83,7 @@ class TestMemoize:
         storage = MemoryStorage()
         call_count = 0
 
-        @memoize(storage)
+        @memoize(storage=storage)
         def return_none(x: int) -> None:
             nonlocal call_count
             call_count += 1
@@ -104,7 +103,7 @@ class TestMemoize:
         storage = MemoryStorage()
         call_count = 0
 
-        @memoize(storage)
+        @memoize(storage=storage)
         def multiply(a: int, b: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -129,7 +128,7 @@ class TestMemoize:
         storage = MemoryStorage()
         call_count = 0
 
-        @memoize(storage)
+        @memoize(storage=storage)
         def power(base: int, exponent: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -156,7 +155,7 @@ class TestMemoize:
         strategy = SourceCode()
         call_count = 0
 
-        @memoize(storage, key_strategy=strategy)
+        @memoize(storage=storage, key_strategy=strategy)
         def add(a: int, b: int) -> int:  # pyright: ignore[reportRedeclaration] this is intentional for the test
             nonlocal call_count
             call_count += 1
@@ -173,7 +172,7 @@ class TestMemoize:
         assert call_count == 1  # Call count should not increase
 
         # Define a function with identical source code
-        @memoize(storage, key_strategy=strategy)
+        @memoize(storage=storage, key_strategy=strategy)
         def add(a: int, b: int) -> int:  # pyright: ignore[reportRedeclaration] this is intentional for the test
             nonlocal call_count
             call_count += 1
@@ -190,7 +189,7 @@ class TestMemoize:
         strategy = Inputs()
         call_count = 0
 
-        @memoize(storage, key_strategy=strategy)
+        @memoize(storage=storage, key_strategy=strategy)
         def greet(name: str, prefix: str = "Hello") -> str:
             nonlocal call_count
             call_count += 1
@@ -222,7 +221,7 @@ class TestMemoize:
 
         call_count = 0
 
-        @memoize(storage, key_strategy=FunctionNameStrategy())
+        @memoize(storage=storage, key_strategy=FunctionNameStrategy())
         def custom_func(a: int, b: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -240,7 +239,7 @@ class TestMemoize:
         assert call_count == 1  # Call count should not increase
 
         # Different function name should not use cache
-        @memoize(storage, key_strategy=FunctionNameStrategy())
+        @memoize(storage=storage, key_strategy=FunctionNameStrategy())
         def another_func(a: int, b: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -256,7 +255,7 @@ class TestMemoize:
         strategy = Inputs()
         call_count = 0
 
-        @memoize(storage, key_strategy=strategy)
+        @memoize(storage=storage, key_strategy=strategy)
         def process_list(items: list[int], multiplier: int = 1) -> list[int]:
             nonlocal call_count
             call_count += 1
@@ -283,7 +282,7 @@ class TestMemoize:
         strategy = Inputs()
         call_count = 0
 
-        @memoize(storage, key_strategy=strategy)
+        @memoize(storage=storage, key_strategy=strategy)
         def return_none(x: int) -> int | None:
             nonlocal call_count
             call_count += 1
