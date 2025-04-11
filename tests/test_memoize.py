@@ -481,7 +481,7 @@ class TestMemoBlock:
                 "test_key", closure_func
             )  # save something that pickle can't handle, but cloudpickle can
             assert storage.exists("test_key")
-            assert storage.get("test_key") == serializer[2].serialize(closure_func)
+            assert storage.get("test_key") == serializer[-1].serialize(closure_func)
 
     def test_all_serializers_fail(self):
         storage = MemoryStorage()
