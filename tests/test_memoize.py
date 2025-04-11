@@ -24,12 +24,7 @@ from stickynote.storage import MemoryStorage
 from exceptiongroup import ExceptionGroup
 
 # Test CloudPickleSerializer only if cloudpickle is available
-try:
-    importlib.util.find_spec("cloudpickle")
-
-    HAS_CLOUDPICKLE = True
-except ImportError:
-    HAS_CLOUDPICKLE = False  # pyright: ignore[reportConstantRedefinition]
+HAS_CLOUDPICKLE = importlib.util.find_spec("cloudpickle") is not None
 
 
 class TestMemoize:
@@ -341,6 +336,7 @@ class TestMemoize:
         assert result == 3
         assert call_count == 1
 
+    @pytest.mark.skipif(not HAS_CLOUDPICKLE, reason="cloudpickle not installed")
     def test_with_multiple_serializers(self):
         storage = MemoryStorage()
         serializer = (JsonSerializer(), PickleSerializer(), CloudPickleSerializer())

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib.util
 import json
 import base64
@@ -81,12 +83,7 @@ def test_serializer_chain(test_data: Any):
 
 
 # Test CloudPickleSerializer only if cloudpickle is available
-try:
-    importlib.util.find_spec("cloudpickle")
-
-    HAS_CLOUDPICKLE = True
-except ImportError:
-    HAS_CLOUDPICKLE = False  # pyright: ignore[reportConstantRedefinition]
+HAS_CLOUDPICKLE = importlib.util.find_spec("cloudpickle") is not None
 
 
 @pytest.mark.skipif(not HAS_CLOUDPICKLE, reason="cloudpickle not installed")
