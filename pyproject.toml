@@ -9,8 +9,13 @@ description = "Distributed function memoization"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "exceptiongroup>=1.2.2",
+    "pytest-watcher>=0.4.3",
     "typing-extensions>=4.13.1",
 ]
+
+[project.optional-dependencies]
+cloudpickle = ["cloudpickle>=3.1.1"]
 
 [dependency-groups]
 dev = [

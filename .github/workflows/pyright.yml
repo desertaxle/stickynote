@@ -16,6 +16,6 @@ jobs:
         python-version: ${{ matrix.python-version }}
         enable-cache: true
     - name: Lint
-      run: uv run pyright
+      run: uv run --all-extras pyright
     - name: Check type completeness
-      run: uv run pyright --ignoreexternal --verifytypes stickynote
+      run: uv run --all-extras pyright --ignoreexternal --verifytypes stickynote

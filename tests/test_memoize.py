@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import base64
 import pickle
-from typing import Any, Dict
+from typing import Any, Callable, Dict
+import importlib.util
+
+import pytest
 
 from stickynote import memoize
 from stickynote.key_strategies import (
@@ -11,7 +14,16 @@ from stickynote.key_strategies import (
     SourceCode,
 )
 from stickynote.memoize import MemoBlock
+from stickynote.serializers import (
+    CloudPickleSerializer,
+    JsonSerializer,
+    PickleSerializer,
+)
 from stickynote.storage import MemoryStorage
+from exceptiongroup import ExceptionGroup
+
+# Test CloudPickleSerializer only if cloudpickle is available
+HAS_CLOUDPICKLE = importlib.util.find_spec("cloudpickle") is not None
 
 
 class TestMemoize:
@@ -303,6 +315,66 @@ class TestMemoize:
         assert result3 == 1
         assert call_count == 2
 
+    def test_with_non_default_serializer(self):
+        storage = MemoryStorage()
+        serializer = JsonSerializer()
+
+        call_count = 0
+
+        @memoize(storage=storage, serializer=serializer)
+        def add(a: int, b: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return a + b
+
+        result = add(1, 2)
+        assert result == 3
+        assert call_count == 1
+
+        result = add(1, 2)
+        assert result == 3
+        assert call_count == 1
+
+    @pytest.mark.skipif(not HAS_CLOUDPICKLE, reason="cloudpickle not installed")
+    def test_with_multiple_serializers(self):
+        storage = MemoryStorage()
+        serializer = (JsonSerializer(), PickleSerializer(), CloudPickleSerializer())
+
+        call_count = 0
+
+        @memoize(storage=storage, serializer=serializer)
+        def add_factory(a: int, b: int) -> Callable[[], int]:
+            def add() -> int:
+                return a + b
+
+            nonlocal call_count
+            call_count += 1
+            return add
+
+        result = add_factory(1, 2)
+        assert result() == 3
+        assert call_count == 1
+
+        result = add_factory(1, 2)
+        assert result() == 3
+        assert call_count == 1
+
+    def test_all_serializers_fail(self):
+        storage = MemoryStorage()
+        serializer = (JsonSerializer(), PickleSerializer())
+
+        @memoize(storage=storage, serializer=serializer)
+        def add_factory(a: int, b: int) -> Callable[[], int]:
+            def add() -> int:
+                return a + b
+
+            return add
+
+        with pytest.raises(ExceptionGroup) as e:
+            add_factory(1, 2)
+
+        assert len(e.value.exceptions) == 2
+
 
 class TestMemoBlock:
     def test_context_manager(self):
@@ -338,9 +410,7 @@ class TestMemoBlock:
         with MemoBlock(storage) as memo:
             memo.save(key, test_value)
             assert storage.exists(key)
-            assert storage.get(key) == base64.b64encode(
-                pickle.dumps(test_value)
-            ).decode("utf-8")
+            assert storage.get(key) == JsonSerializer().serialize({"key": "value"})
 
     def test_save_and_load(self):
         storage = MemoryStorage()
@@ -376,3 +446,59 @@ class TestMemoBlock:
             memo.load(key)
             assert memo.hit
             assert memo.value == test_value
+
+    def test_with_non_default_serializer(self):
+        storage = MemoryStorage()
+        serializer = JsonSerializer()
+        with MemoBlock(storage, serializer) as memo:
+            memo.save("test_key", {"key": "value"})
+            assert storage.exists("test_key")
+            assert storage.get("test_key") == serializer.serialize({"key": "value"})
+
+    @pytest.mark.skipif(not HAS_CLOUDPICKLE, reason="cloudpickle not installed")
+    @pytest.mark.parametrize(
+        "serializer",
+        [
+            (JsonSerializer(), PickleSerializer(), CloudPickleSerializer()),
+            [JsonSerializer(), CloudPickleSerializer()],
+        ],
+    )
+    def test_with_multiple_serializers(self, serializer):
+        storage = MemoryStorage()
+
+        def outer(x: int) -> Callable[[int], int]:
+            y = x * 2
+
+            def inner(z: int) -> int:
+                return y + z
+
+            return inner
+
+        closure_func = outer(5)
+
+        with MemoBlock(storage, serializer) as memo:
+            memo.save(
+                "test_key", closure_func
+            )  # save something that pickle can't handle, but cloudpickle can
+            assert storage.exists("test_key")
+            assert storage.get("test_key") == serializer[-1].serialize(closure_func)
+
+    def test_all_serializers_fail(self):
+        storage = MemoryStorage()
+        serializer = (JsonSerializer(), PickleSerializer())
+
+        def outer(x: int) -> Callable[[int], int]:
+            y = x * 2
+
+            def inner(z: int) -> int:
+                return y + z
+
+            return inner
+
+        closure_func = outer(5)
+
+        with pytest.raises(ExceptionGroup) as e:
+            with MemoBlock(storage, serializer) as memo:
+                memo.save("test_key", closure_func)
+
+        assert len(e.value.exceptions) == 2
