@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import json
 import pickle
 from typing import Any, Callable, Dict
 import importlib.util
@@ -411,7 +410,7 @@ class TestMemoBlock:
         with MemoBlock(storage) as memo:
             memo.save(key, test_value)
             assert storage.exists(key)
-            assert storage.get(key) == json.dumps({"key": "value"})
+            assert storage.get(key) == JsonSerializer().serialize({"key": "value"})
 
     def test_save_and_load(self):
         storage = MemoryStorage()
@@ -457,9 +456,15 @@ class TestMemoBlock:
             assert storage.get("test_key") == serializer.serialize({"key": "value"})
 
     @pytest.mark.skipif(not HAS_CLOUDPICKLE, reason="cloudpickle not installed")
-    def test_with_multiple_serializers(self):
+    @pytest.mark.parametrize(
+        "serializer",
+        [
+            (JsonSerializer(), PickleSerializer(), CloudPickleSerializer()),
+            [JsonSerializer(), CloudPickleSerializer()],
+        ],
+    )
+    def test_with_multiple_serializers(self, serializer):
         storage = MemoryStorage()
-        serializer = (JsonSerializer(), PickleSerializer(), CloudPickleSerializer())
 
         def outer(x: int) -> Callable[[int], int]:
             y = x * 2

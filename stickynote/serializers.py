@@ -1,9 +1,10 @@
 import base64
 import json
 import pickle
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
+@runtime_checkable
 class Serializer(Protocol):
     def serialize(self, obj: Any) -> str: ...
 

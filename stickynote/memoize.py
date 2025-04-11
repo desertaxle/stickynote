@@ -79,10 +79,10 @@ class MemoBlock:
         self.storage = storage
         self.hit: bool = False
         self.value: Any = None
-        if isinstance(serializer, Iterable):
-            self.serializer: tuple[Serializer, ...] = tuple(serializer)
-        else:
+        if isinstance(serializer, Serializer):
             self.serializer: tuple[Serializer, ...] = (serializer,)
+        else:
+            self.serializer: tuple[Serializer, ...] = tuple(serializer)
 
     def __enter__(self) -> Self:
         return self
