@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 from datetime import timezone, datetime
 import pickle
-from typing import Any, Callable, Dict
+from typing import Any, Callable
 import importlib.util
 from unittest.mock import MagicMock
 from freezegun import freeze_time
@@ -80,7 +80,7 @@ class TestMemoize:
         call_count = 0
 
         @memoize(storage=storage)
-        def create_dict(a: int, b: int) -> Dict[str, int]:
+        def create_dict(a: int, b: int) -> dict[str, int]:
             nonlocal call_count
             call_count += 1
             return {"sum": a + b, "product": a * b}
@@ -391,9 +391,9 @@ class TestMemoize:
         def add(a: int, b: int) -> int:
             return a + b
 
-        memoized_add = memoize(
-            storage=storage, on_cache_hit=spy, key_strategy=StaticKeyStrategy()
-        )(add)
+        memoized_add = memoize(storage=storage, key_strategy=StaticKeyStrategy())(add)
+
+        memoized_add.on_cache_hit(spy)
 
         memoized_add(1, 2)
         spy.assert_not_called()
