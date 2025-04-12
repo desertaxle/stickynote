@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import base64
+from datetime import UTC, datetime
 import pickle
 from typing import Any, Callable, Dict
 import importlib.util
+from unittest.mock import MagicMock
+from freezegun import freeze_time
 
 import pytest
 
@@ -18,6 +21,7 @@ from stickynote.serializers import (
     CloudPickleSerializer,
     JsonSerializer,
     PickleSerializer,
+    Serializer,
 )
 from stickynote.storage import MemoryStorage
 from exceptiongroup import ExceptionGroup
@@ -375,6 +379,27 @@ class TestMemoize:
 
         assert len(e.value.exceptions) == 2
 
+    @freeze_time("2025-01-01")
+    def test_on_cache_hit_callback(self):
+        storage = MemoryStorage()
+        spy = MagicMock()
+
+        class StaticKeyStrategy(MemoKeyStrategy):
+            def compute(self, func: Any, args: Any, kwargs: Any) -> str:
+                return "test_key"
+
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        memoized_add = memoize(
+            storage=storage, on_cache_hit=spy, key_strategy=StaticKeyStrategy()
+        )(add)
+
+        memoized_add(1, 2)
+        spy.assert_not_called()
+        memoized_add(1, 2)
+        spy.assert_called_once_with("test_key", 3, add, (1, 2), {}, datetime.now(UTC))
+
 
 class TestMemoBlock:
     def test_context_manager(self):
@@ -463,7 +488,9 @@ class TestMemoBlock:
             [JsonSerializer(), CloudPickleSerializer()],
         ],
     )
-    def test_with_multiple_serializers(self, serializer):
+    def test_with_multiple_serializers(
+        self, serializer: list[Serializer] | tuple[Serializer, ...]
+    ):
         storage = MemoryStorage()
 
         def outer(x: int) -> Callable[[int], int]:

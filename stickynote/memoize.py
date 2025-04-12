@@ -1,7 +1,18 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from functools import partial
-from typing import Any, Callable, Iterable, Literal, TypeVar, cast, overload
+from typing import (
+    Any,
+    Callable,
+    Generic,
+    Iterable,
+    Literal,
+    Protocol,
+    TypeVar,
+    cast,
+    overload,
+)
 
 from typing_extensions import ParamSpec, Self
 from exceptiongroup import ExceptionGroup
@@ -11,7 +22,21 @@ from stickynote.serializers import DEFAULT_SERIALIZER_CHAIN, Serializer
 from stickynote.storage import DEFAULT_STORAGE, MemoStorage
 
 P = ParamSpec("P")
-R = TypeVar("R")
+R = TypeVar("R", contravariant=True)
+
+
+class OnCacheHitCallback(Protocol, Generic[P, R]):
+    """Callback function for when a cache hit occurs."""
+
+    def __call__(
+        self,
+        key: str,
+        value: R,
+        function: Callable[P, R],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        hit_time: datetime,
+    ) -> None: ...
 
 
 @overload
@@ -27,6 +52,7 @@ def memoize(
     storage: MemoStorage = DEFAULT_STORAGE,
     key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
     serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
+    on_cache_hit: OnCacheHitCallback[P, R] | None = None,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
@@ -36,6 +62,7 @@ def memoize(
     storage: MemoStorage = DEFAULT_STORAGE,
     key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
     serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
+    on_cache_hit: OnCacheHitCallback[P, R] | None = None,
 ) -> Callable[[Callable[P, R]], Callable[P, R]] | Callable[P, R]:
     """
     Decorator to memoize the results of a function.
@@ -49,6 +76,7 @@ def memoize(
                 storage=storage,
                 key_strategy=key_strategy,
                 serializer=serializer,
+                on_cache_hit=on_cache_hit,
             ),
         )
     else:
@@ -58,6 +86,15 @@ def memoize(
                 key = key_strategy.compute(__fn, args, kwargs)
                 memo.load(key)
                 if memo.hit:
+                    if on_cache_hit is not None:
+                        on_cache_hit(
+                            key,
+                            memo.value,
+                            __fn,
+                            args,
+                            kwargs,
+                            datetime.now(UTC),
+                        )
                     return memo.value
                 result = __fn(*args, **kwargs)
                 memo.save(key, result)
