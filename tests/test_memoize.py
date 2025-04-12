@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import UTC, datetime
+from datetime import timezone, datetime
 import pickle
 from typing import Any, Callable, Dict
 import importlib.util
@@ -398,7 +398,9 @@ class TestMemoize:
         memoized_add(1, 2)
         spy.assert_not_called()
         memoized_add(1, 2)
-        spy.assert_called_once_with("test_key", 3, add, (1, 2), {}, datetime.now(UTC))
+        spy.assert_called_once_with(
+            "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+        )
 
 
 class TestMemoBlock:

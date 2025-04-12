@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import timezone, datetime
 from functools import partial
 from typing import (
     Any,
@@ -93,7 +93,7 @@ def memoize(
                             __fn,
                             args,
                             kwargs,
-                            datetime.now(UTC),
+                            datetime.now(timezone.utc),
                         )
                     return memo.value
                 result = __fn(*args, **kwargs)
