@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import base64
+from datetime import timezone, datetime
 import pickle
-from typing import Any, Callable, Dict
+from typing import Any, Callable
 import importlib.util
+from unittest.mock import MagicMock
+from freezegun import freeze_time
 
 import pytest
 
@@ -18,12 +21,18 @@ from stickynote.serializers import (
     CloudPickleSerializer,
     JsonSerializer,
     PickleSerializer,
+    Serializer,
 )
 from stickynote.storage import MemoryStorage
 from exceptiongroup import ExceptionGroup
 
 # Test CloudPickleSerializer only if cloudpickle is available
 HAS_CLOUDPICKLE = importlib.util.find_spec("cloudpickle") is not None
+
+
+class StaticKeyStrategy(MemoKeyStrategy):
+    def compute(self, func: Any, args: Any, kwargs: Any) -> str:
+        return "test_key"
 
 
 class TestMemoize:
@@ -76,7 +85,7 @@ class TestMemoize:
         call_count = 0
 
         @memoize(storage=storage)
-        def create_dict(a: int, b: int) -> Dict[str, int]:
+        def create_dict(a: int, b: int) -> dict[str, int]:
             nonlocal call_count
             call_count += 1
             return {"sum": a + b, "product": a * b}
@@ -375,6 +384,74 @@ class TestMemoize:
 
         assert len(e.value.exceptions) == 2
 
+    @freeze_time("2025-01-01")
+    def test_on_cache_hit_callback(self):
+        storage = MemoryStorage()
+        spy = MagicMock()
+
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        memoized_add = memoize(storage=storage, key_strategy=StaticKeyStrategy())(add)
+
+        memoized_add.on_cache_hit(spy)
+
+        memoized_add(1, 2)
+        spy.assert_not_called()
+        memoized_add(1, 2)
+        spy.assert_called_once_with(
+            "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+        )
+
+    @freeze_time("2025-01-01")
+    def test_on_multiple_on_cache_hit_callbacks(self):
+        storage = MemoryStorage()
+        spy1 = MagicMock()
+        spy2 = MagicMock()
+
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        memoized_add = memoize(storage=storage, key_strategy=StaticKeyStrategy())(add)
+
+        memoized_add.on_cache_hit(spy1)
+        memoized_add.on_cache_hit(spy2)
+
+        memoized_add(1, 2)
+        spy1.assert_not_called()
+        spy2.assert_not_called()
+
+        memoized_add(1, 2)
+        spy1.assert_called_once_with(
+            "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+        )
+        spy2.assert_called_once_with(
+            "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+        )
+
+    @freeze_time("2025-01-01")
+    def test_on_cache_callback_raises_exception(self, caplog: pytest.LogCaptureFixture):
+        storage = MemoryStorage()
+        spy = MagicMock()
+        spy.side_effect = Exception("test exception")
+
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        memoized_add = memoize(storage=storage, key_strategy=StaticKeyStrategy())(add)
+        memoized_add.on_cache_hit(spy)
+
+        memoized_add(1, 2)
+        spy.assert_not_called()
+
+        memoized_add(1, 2)
+        spy.assert_called_once_with(
+            "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+        )
+
+        assert "An error occurred while calling on_cache_hit callback" in caplog.text
+        assert "test exception" in caplog.text
+
 
 class TestMemoBlock:
     def test_context_manager(self):
@@ -463,7 +540,9 @@ class TestMemoBlock:
             [JsonSerializer(), CloudPickleSerializer()],
         ],
     )
-    def test_with_multiple_serializers(self, serializer):
+    def test_with_multiple_serializers(
+        self, serializer: list[Serializer] | tuple[Serializer, ...]
+    ):
         storage = MemoryStorage()
 
         def outer(x: int) -> Callable[[int], int]:

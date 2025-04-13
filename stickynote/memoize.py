@@ -1,7 +1,19 @@
 from __future__ import annotations
 
+from datetime import timezone, datetime
 from functools import partial
-from typing import Any, Callable, Iterable, Literal, TypeVar, cast, overload
+import logging
+from typing import (
+    Any,
+    Callable,
+    Generic,
+    Iterable,
+    Literal,
+    Protocol,
+    TypeVar,
+    cast,
+    overload,
+)
 
 from typing_extensions import ParamSpec, Self
 from exceptiongroup import ExceptionGroup
@@ -12,12 +24,75 @@ from stickynote.storage import DEFAULT_STORAGE, MemoStorage
 
 P = ParamSpec("P")
 R = TypeVar("R")
+R_co = TypeVar("R_co", covariant=True)
+
+logger: logging.Logger = logging.getLogger("stickynote.memoize")
+
+
+class OnCacheHitCallback(Protocol, Generic[P, R_co]):
+    def __call__(
+        self,
+        key: str,
+        value: R,
+        fn: Callable[P, R],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        timestamp: datetime,
+    ) -> None: ...
+
+
+class MemoizedCallable(Generic[P, R]):
+    """Protocol for memoized callables."""
+
+    def __init__(
+        self,
+        fn: Callable[P, R],
+        storage: MemoStorage,
+        serializer: Serializer | Iterable[Serializer],
+        key_strategy: MemoKeyStrategy,
+    ):
+        self.fn = fn
+        self.storage = storage
+        self.serializer = serializer
+        self.key_strategy = key_strategy
+        self.on_cache_hit_callbacks: list[OnCacheHitCallback[P, R]] = []
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        with MemoBlock(self.storage, self.serializer) as memo:
+            key = self.key_strategy.compute(self.fn, args, kwargs)
+            memo.load(key)
+            if memo.hit:
+                for callback in self.on_cache_hit_callbacks:
+                    try:
+                        callback(
+                            key,
+                            memo.value,
+                            self.fn,
+                            args,
+                            kwargs,
+                            datetime.now(timezone.utc),
+                        )
+                    except Exception:
+                        logger.warning(
+                            "An error occurred while calling on_cache_hit callback",
+                            exc_info=True,
+                        )
+                return memo.value
+            result = self.fn(*args, **kwargs)
+            memo.save(key, result)
+            return result
+
+    def on_cache_hit(
+        self,
+        fn: OnCacheHitCallback[P, R],
+    ) -> None:
+        self.on_cache_hit_callbacks.append(fn)
 
 
 @overload
 def memoize(
     __fn: Callable[P, R],
-) -> Callable[P, R]: ...
+) -> MemoizedCallable[P, R]: ...
 
 
 @overload
@@ -27,7 +102,7 @@ def memoize(
     storage: MemoStorage = DEFAULT_STORAGE,
     key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
     serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
-) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+) -> Callable[[Callable[P, R]], MemoizedCallable[P, R]]: ...
 
 
 def memoize(
@@ -36,14 +111,14 @@ def memoize(
     storage: MemoStorage = DEFAULT_STORAGE,
     key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
     serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
-) -> Callable[[Callable[P, R]], Callable[P, R]] | Callable[P, R]:
+) -> Callable[[Callable[P, R]], MemoizedCallable[P, R]] | MemoizedCallable[P, R]:
     """
     Decorator to memoize the results of a function.
     """
 
     if __fn is None:
         return cast(
-            Callable[[Callable[P, R]], Callable[P, R]],
+            Callable[[Callable[P, R]], MemoizedCallable[P, R]],
             partial(
                 memoize,
                 storage=storage,
@@ -52,18 +127,7 @@ def memoize(
             ),
         )
     else:
-
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            with MemoBlock(storage, serializer) as memo:
-                key = key_strategy.compute(__fn, args, kwargs)
-                memo.load(key)
-                if memo.hit:
-                    return memo.value
-                result = __fn(*args, **kwargs)
-                memo.save(key, result)
-                return result
-
-        return wrapper
+        return MemoizedCallable(__fn, storage, serializer, key_strategy)
 
 
 class MemoBlock:
