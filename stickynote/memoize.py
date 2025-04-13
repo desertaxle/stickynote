@@ -8,6 +8,7 @@ from typing import (
     Generic,
     Iterable,
     Literal,
+    Protocol,
     TypeVar,
     cast,
     overload,
@@ -21,19 +22,24 @@ from stickynote.serializers import DEFAULT_SERIALIZER_CHAIN, Serializer
 from stickynote.storage import DEFAULT_STORAGE, MemoStorage
 
 P = ParamSpec("P")
-R = TypeVar("R", covariant=True)
+R = TypeVar("R")
+R_co = TypeVar("R_co", covariant=True)
+
+
+class OnCacheHitCallback(Protocol, Generic[P, R_co]):
+    def __call__(
+        self,
+        key: str,
+        value: R,
+        fn: Callable[P, R],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        timestamp: datetime,
+    ) -> None: ...
 
 
 class MemoizedCallable(Generic[P, R]):
     """Protocol for memoized callables."""
-
-    _on_cache_hit: (
-        Callable[
-            [str, Any, Callable[..., Any], tuple[Any, ...], dict[str, Any], datetime],
-            None,
-        ]
-        | None
-    ) = None
 
     def __init__(
         self,
@@ -46,14 +52,15 @@ class MemoizedCallable(Generic[P, R]):
         self.storage = storage
         self.serializer = serializer
         self.key_strategy = key_strategy
+        self._on_cache_hit_callbacks: list[OnCacheHitCallback[P, R]] = []
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         with MemoBlock(self.storage, self.serializer) as memo:
             key = self.key_strategy.compute(self.fn, args, kwargs)
             memo.load(key)
             if memo.hit:
-                if self._on_cache_hit is not None:
-                    self._on_cache_hit(
+                for callback in self._on_cache_hit_callbacks:
+                    callback(
                         key,
                         memo.value,
                         self.fn,
@@ -68,13 +75,9 @@ class MemoizedCallable(Generic[P, R]):
 
     def on_cache_hit(
         self,
-        fn: Callable[
-            [str, Any, Callable[..., Any], tuple[Any, ...], dict[str, Any], datetime],
-            None,
-        ],
-        /,
-    ):
-        self._on_cache_hit = fn
+        fn: OnCacheHitCallback[P, R],
+    ) -> None:
+        self._on_cache_hit_callbacks.append(fn)
 
 
 @overload
