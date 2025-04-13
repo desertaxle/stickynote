@@ -102,10 +102,6 @@ def memoize(
     storage: MemoStorage = DEFAULT_STORAGE,
     key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
     serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
-    on_cache_hit: Callable[
-        [str, Any, Callable[..., Any], tuple[Any, ...], dict[str, Any], datetime], None
-    ]
-    | None = None,
 ) -> Callable[[Callable[P, R]], MemoizedCallable[P, R]]: ...
 
 
@@ -115,10 +111,6 @@ def memoize(
     storage: MemoStorage = DEFAULT_STORAGE,
     key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
     serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
-    on_cache_hit: Callable[
-        [str, R, Callable[..., R], tuple[Any, ...], dict[str, Any], datetime], None
-    ]
-    | None = None,
 ) -> Callable[[Callable[P, R]], MemoizedCallable[P, R]] | MemoizedCallable[P, R]:
     """
     Decorator to memoize the results of a function.
@@ -132,7 +124,6 @@ def memoize(
                 storage=storage,
                 key_strategy=key_strategy,
                 serializer=serializer,
-                on_cache_hit=on_cache_hit,
             ),
         )
     else:
