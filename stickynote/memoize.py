@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timezone, datetime
 from functools import partial
+import logging
 from typing import (
     Any,
     Callable,
@@ -24,6 +25,8 @@ from stickynote.storage import DEFAULT_STORAGE, MemoStorage
 P = ParamSpec("P")
 R = TypeVar("R")
 R_co = TypeVar("R_co", covariant=True)
+
+logger: logging.Logger = logging.getLogger("stickynote.memoize")
 
 
 class OnCacheHitCallback(Protocol, Generic[P, R_co]):
@@ -52,22 +55,28 @@ class MemoizedCallable(Generic[P, R]):
         self.storage = storage
         self.serializer = serializer
         self.key_strategy = key_strategy
-        self._on_cache_hit_callbacks: list[OnCacheHitCallback[P, R]] = []
+        self.on_cache_hit_callbacks: list[OnCacheHitCallback[P, R]] = []
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         with MemoBlock(self.storage, self.serializer) as memo:
             key = self.key_strategy.compute(self.fn, args, kwargs)
             memo.load(key)
             if memo.hit:
-                for callback in self._on_cache_hit_callbacks:
-                    callback(
-                        key,
-                        memo.value,
-                        self.fn,
-                        args,
-                        kwargs,
-                        datetime.now(timezone.utc),
-                    )
+                for callback in self.on_cache_hit_callbacks:
+                    try:
+                        callback(
+                            key,
+                            memo.value,
+                            self.fn,
+                            args,
+                            kwargs,
+                            datetime.now(timezone.utc),
+                        )
+                    except Exception:
+                        logger.warning(
+                            "An error occurred while calling on_cache_hit callback",
+                            exc_info=True,
+                        )
                 return memo.value
             result = self.fn(*args, **kwargs)
             memo.save(key, result)
@@ -77,7 +86,7 @@ class MemoizedCallable(Generic[P, R]):
         self,
         fn: OnCacheHitCallback[P, R],
     ) -> None:
-        self._on_cache_hit_callbacks.append(fn)
+        self.on_cache_hit_callbacks.append(fn)
 
 
 @overload

@@ -30,6 +30,11 @@ from exceptiongroup import ExceptionGroup
 HAS_CLOUDPICKLE = importlib.util.find_spec("cloudpickle") is not None
 
 
+class StaticKeyStrategy(MemoKeyStrategy):
+    def compute(self, func: Any, args: Any, kwargs: Any) -> str:
+        return "test_key"
+
+
 class TestMemoize:
     def test_basic_memoization(self):
         call_count = 0
@@ -384,10 +389,6 @@ class TestMemoize:
         storage = MemoryStorage()
         spy = MagicMock()
 
-        class StaticKeyStrategy(MemoKeyStrategy):
-            def compute(self, func: Any, args: Any, kwargs: Any) -> str:
-                return "test_key"
-
         def add(a: int, b: int) -> int:
             return a + b
 
@@ -401,6 +402,55 @@ class TestMemoize:
         spy.assert_called_once_with(
             "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
         )
+
+    @freeze_time("2025-01-01")
+    def test_on_multiple_on_cache_hit_callbacks(self):
+        storage = MemoryStorage()
+        spy1 = MagicMock()
+        spy2 = MagicMock()
+
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        memoized_add = memoize(storage=storage, key_strategy=StaticKeyStrategy())(add)
+
+        memoized_add.on_cache_hit(spy1)
+        memoized_add.on_cache_hit(spy2)
+
+        memoized_add(1, 2)
+        spy1.assert_not_called()
+        spy2.assert_not_called()
+
+        memoized_add(1, 2)
+        spy1.assert_called_once_with(
+            "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+        )
+        spy2.assert_called_once_with(
+            "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+        )
+
+    @freeze_time("2025-01-01")
+    def test_on_cache_callback_raises_exception(self, caplog: pytest.LogCaptureFixture):
+        storage = MemoryStorage()
+        spy = MagicMock()
+        spy.side_effect = Exception("test exception")
+
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        memoized_add = memoize(storage=storage, key_strategy=StaticKeyStrategy())(add)
+        memoized_add.on_cache_hit(spy)
+
+        memoized_add(1, 2)
+        spy.assert_not_called()
+
+        memoized_add(1, 2)
+        spy.assert_called_once_with(
+            "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+        )
+
+        assert "An error occurred while calling on_cache_hit callback" in caplog.text
+        assert "test exception" in caplog.text
 
 
 class TestMemoBlock:
