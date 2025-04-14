@@ -456,7 +456,7 @@ class TestMemoize:
 class TestMemoBlock:
     def test_context_manager(self):
         storage = MemoryStorage()
-        with MemoBlock(storage) as memo:
+        with MemoBlock(key="test_key", storage=storage) as memo:
             assert memo.storage == storage
             assert not memo.hit
             assert memo.value is None
@@ -467,15 +467,15 @@ class TestMemoBlock:
         key = "test_key"
         storage.set(key, base64.b64encode(pickle.dumps(test_value)).decode("utf-8"))
 
-        with MemoBlock(storage) as memo:
-            memo.load(key)
+        with MemoBlock(key=key, storage=storage) as memo:
+            memo.load()
             assert memo.hit
             assert memo.value == test_value
 
     def test_load_nonexistent_value(self):
         storage = MemoryStorage()
-        with MemoBlock(storage) as memo:
-            memo.load("nonexistent_key")
+        with MemoBlock(key="nonexistent_key", storage=storage) as memo:
+            memo.load()
             assert not memo.hit
             assert memo.value is None
 
@@ -484,10 +484,11 @@ class TestMemoBlock:
         test_value = {"key": "value"}
         key = "test_key"
 
-        with MemoBlock(storage) as memo:
-            memo.save(key, test_value)
-            assert storage.exists(key)
-            assert storage.get(key) == JsonSerializer().serialize({"key": "value"})
+        with MemoBlock(key=key, storage=storage) as memo:
+            memo.stage(test_value)
+
+        assert storage.exists(key)
+        assert storage.get(key) == JsonSerializer().serialize({"key": "value"})
 
     def test_save_and_load(self):
         storage = MemoryStorage()
@@ -495,12 +496,12 @@ class TestMemoBlock:
         key = "test_key"
 
         # Save value
-        with MemoBlock(storage) as memo:
-            memo.save(key, test_value)
+        with MemoBlock(key=key, storage=storage) as memo:
+            memo.stage(test_value)
 
         # Load value
-        with MemoBlock(storage) as memo:
-            memo.load(key)
+        with MemoBlock(key=key, storage=storage) as memo:
+            memo.load()
             assert memo.hit
             assert memo.value == test_value
 
@@ -515,22 +516,24 @@ class TestMemoBlock:
         }
         key = "test_key"
 
-        with MemoBlock(storage) as memo:
-            memo.save(key, test_value)
-            assert storage.exists(key)
+        with MemoBlock(key=key, storage=storage) as memo:
+            memo.stage(test_value)
+        assert storage.exists(key)
 
-        with MemoBlock(storage) as memo:
-            memo.load(key)
+        with MemoBlock(key=key, storage=storage) as memo:
+            memo.load()
             assert memo.hit
             assert memo.value == test_value
 
     def test_with_non_default_serializer(self):
         storage = MemoryStorage()
         serializer = JsonSerializer()
-        with MemoBlock(storage, serializer) as memo:
-            memo.save("test_key", {"key": "value"})
-            assert storage.exists("test_key")
-            assert storage.get("test_key") == serializer.serialize({"key": "value"})
+        key = "test_key"
+        with MemoBlock(key=key, storage=storage, serializer=serializer) as memo:
+            memo.stage({"key": "value"})
+
+        assert storage.exists(key)
+        assert storage.get(key) == serializer.serialize({"key": "value"})
 
     @pytest.mark.skipif(not HAS_CLOUDPICKLE, reason="cloudpickle not installed")
     @pytest.mark.parametrize(
@@ -555,12 +558,11 @@ class TestMemoBlock:
 
         closure_func = outer(5)
 
-        with MemoBlock(storage, serializer) as memo:
-            memo.save(
-                "test_key", closure_func
-            )  # save something that pickle can't handle, but cloudpickle can
-            assert storage.exists("test_key")
-            assert storage.get("test_key") == serializer[-1].serialize(closure_func)
+        with MemoBlock(key="test_key", storage=storage, serializer=serializer) as memo:
+            memo.stage(closure_func)
+
+        assert storage.exists("test_key")
+        assert storage.get("test_key") == serializer[-1].serialize(closure_func)
 
     def test_all_serializers_fail(self):
         storage = MemoryStorage()
@@ -575,9 +577,10 @@ class TestMemoBlock:
             return inner
 
         closure_func = outer(5)
-
         with pytest.raises(ExceptionGroup) as e:
-            with MemoBlock(storage, serializer) as memo:
-                memo.save("test_key", closure_func)
+            with MemoBlock(
+                key="test_key", storage=storage, serializer=serializer
+            ) as memo:
+                memo.stage(closure_func)
 
         assert len(e.value.exceptions) == 2

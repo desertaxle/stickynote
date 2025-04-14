@@ -58,9 +58,10 @@ class MemoizedCallable(Generic[P, R]):
         self.on_cache_hit_callbacks: list[OnCacheHitCallback[P, R]] = []
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
-        with MemoBlock(self.storage, self.serializer) as memo:
-            key = self.key_strategy.compute(self.fn, args, kwargs)
-            memo.load(key)
+        key = self.key_strategy.compute(self.fn, args, kwargs)
+        with MemoBlock(
+            key=key, storage=self.storage, serializer=self.serializer
+        ) as memo:
             if memo.hit:
                 for callback in self.on_cache_hit_callbacks:
                     try:
@@ -79,7 +80,7 @@ class MemoizedCallable(Generic[P, R]):
                         )
                 return memo.value
             result = self.fn(*args, **kwargs)
-            memo.save(key, result)
+            memo.stage(result)
             return result
 
     def on_cache_hit(
@@ -130,6 +131,9 @@ def memoize(
         return MemoizedCallable(__fn, storage, serializer, key_strategy)
 
 
+_UNSET = object()
+
+
 class MemoBlock:
     """
     Context manager to load and save the result of a function to a backend.
@@ -137,9 +141,11 @@ class MemoBlock:
 
     def __init__(
         self,
+        key: str,
         storage: MemoStorage = DEFAULT_STORAGE,
         serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
     ):
+        self.key = key
         self.storage = storage
         self.hit: bool = False
         self.value: Any = None
@@ -148,21 +154,26 @@ class MemoBlock:
         else:
             self.serializer: tuple[Serializer, ...] = tuple(serializer)
 
+        self.staged_value: Any = _UNSET
+
     def __enter__(self) -> Self:
+        self.load()
         return self
 
     def __exit__(self, *args: Any) -> None:
-        pass
+        self.save()
 
-    def load(self, key: str) -> None:
+        self.staged_value = _UNSET
+
+    def load(self) -> None:
         """
         Load the result of a function from the backend.
         """
         serializer_exceptions: list[Exception] = []
-        if self.storage.exists(key):
+        if self.storage.exists(self.key):
             for serializer in self.serializer:
                 try:
-                    self.value = serializer.deserialize(self.storage.get(key))
+                    self.value = serializer.deserialize(self.storage.get(self.key))
                     self.hit = True
                     break
                 except Exception as e:
@@ -174,19 +185,31 @@ class MemoBlock:
                 serializer_exceptions,
             )
 
-    def save(self, key: str, value: Any) -> None:
+    def stage(self, value: Any) -> None:
+        """
+        Stage the result of a function to be saved.
+        """
+        self.staged_value = value
+
+    def save(self) -> None:
         """
         Save the result of a function to the backend.
         """
+        if self.staged_value is _UNSET:
+            return
+
         serializer_exceptions: list[Exception] = []
+        serialized_value = _UNSET
         for serializer in self.serializer:
             try:
-                self.storage.set(key, serializer.serialize(value))
+                serialized_value = serializer.serialize(self.staged_value)
                 break
             except Exception as e:
                 serializer_exceptions.append(e)
 
-        if len(serializer_exceptions) == len(self.serializer):
+        if not isinstance(serialized_value, str):
             raise ExceptionGroup(
                 "All serializers failed to serialize the result.", serializer_exceptions
             )
+
+        self.storage.set(self.key, serialized_value)
