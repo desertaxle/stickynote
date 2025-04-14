@@ -485,7 +485,7 @@ class TestMemoBlock:
         key = "test_key"
 
         with MemoBlock(key=key, storage=storage) as memo:
-            memo.stage(key, test_value)
+            memo.stage(test_value)
 
         assert storage.exists(key)
         assert storage.get(key) == JsonSerializer().serialize({"key": "value"})
@@ -497,7 +497,7 @@ class TestMemoBlock:
 
         # Save value
         with MemoBlock(key=key, storage=storage) as memo:
-            memo.stage(key, test_value)
+            memo.stage(test_value)
 
         # Load value
         with MemoBlock(key=key, storage=storage) as memo:
@@ -517,7 +517,7 @@ class TestMemoBlock:
         key = "test_key"
 
         with MemoBlock(key=key, storage=storage) as memo:
-            memo.stage(key, test_value)
+            memo.stage(test_value)
         assert storage.exists(key)
 
         with MemoBlock(key=key, storage=storage) as memo:
@@ -530,7 +530,7 @@ class TestMemoBlock:
         serializer = JsonSerializer()
         key = "test_key"
         with MemoBlock(key=key, storage=storage, serializer=serializer) as memo:
-            memo.stage(key, {"key": "value"})
+            memo.stage({"key": "value"})
 
         assert storage.exists(key)
         assert storage.get(key) == serializer.serialize({"key": "value"})
@@ -559,7 +559,7 @@ class TestMemoBlock:
         closure_func = outer(5)
 
         with MemoBlock(key="test_key", storage=storage, serializer=serializer) as memo:
-            memo.stage("test_key", closure_func)
+            memo.stage(closure_func)
 
         assert storage.exists("test_key")
         assert storage.get("test_key") == serializer[-1].serialize(closure_func)
@@ -581,6 +581,6 @@ class TestMemoBlock:
             with MemoBlock(
                 key="test_key", storage=storage, serializer=serializer
             ) as memo:
-                memo.stage("test_key", closure_func)
+                memo.stage(closure_func)
 
         assert len(e.value.exceptions) == 2

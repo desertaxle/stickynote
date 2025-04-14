@@ -80,7 +80,7 @@ class MemoizedCallable(Generic[P, R]):
                         )
                 return memo.value
             result = self.fn(*args, **kwargs)
-            memo.stage(key, result)
+            memo.stage(result)
             return result
 
     def on_cache_hit(
