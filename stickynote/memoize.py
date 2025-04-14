@@ -185,11 +185,10 @@ class MemoBlock:
                 serializer_exceptions,
             )
 
-    def stage(self, key: str, value: Any) -> None:
+    def stage(self, value: Any) -> None:
         """
         Stage the result of a function to be saved.
         """
-        self.key = key
         self.staged_value = value
 
     def save(self) -> None:
