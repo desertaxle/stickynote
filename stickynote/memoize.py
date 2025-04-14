@@ -58,9 +58,10 @@ class MemoizedCallable(Generic[P, R]):
         self.on_cache_hit_callbacks: list[OnCacheHitCallback[P, R]] = []
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
-        with MemoBlock(self.storage, self.serializer) as memo:
-            key = self.key_strategy.compute(self.fn, args, kwargs)
-            memo.load(key)
+        key = self.key_strategy.compute(self.fn, args, kwargs)
+        with MemoBlock(
+            key=key, storage=self.storage, serializer=self.serializer
+        ) as memo:
             if memo.hit:
                 for callback in self.on_cache_hit_callbacks:
                     try:
@@ -140,9 +141,11 @@ class MemoBlock:
 
     def __init__(
         self,
+        key: str,
         storage: MemoStorage = DEFAULT_STORAGE,
         serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
     ):
+        self.key = key
         self.storage = storage
         self.hit: bool = False
         self.value: Any = None
@@ -152,16 +155,15 @@ class MemoBlock:
             self.serializer: tuple[Serializer, ...] = tuple(serializer)
 
         self.staged_value: Any = _UNSET
-        self.key: str | None = None
 
     def __enter__(self) -> Self:
+        self.load(self.key)
         return self
 
     def __exit__(self, *args: Any) -> None:
         self.save()
 
         self.staged_value = _UNSET
-        self.key = None
 
     def load(self, key: str) -> None:
         """
@@ -194,7 +196,7 @@ class MemoBlock:
         """
         Save the result of a function to the backend.
         """
-        if self.key is None or self.staged_value is _UNSET:
+        if self.staged_value is _UNSET:
             return
 
         serializer_exceptions: list[Exception] = []
