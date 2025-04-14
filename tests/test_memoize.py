@@ -468,14 +468,14 @@ class TestMemoBlock:
         storage.set(key, base64.b64encode(pickle.dumps(test_value)).decode("utf-8"))
 
         with MemoBlock(key=key, storage=storage) as memo:
-            memo.load(key)
+            memo.load()
             assert memo.hit
             assert memo.value == test_value
 
     def test_load_nonexistent_value(self):
         storage = MemoryStorage()
         with MemoBlock(key="nonexistent_key", storage=storage) as memo:
-            memo.load("nonexistent_key")
+            memo.load()
             assert not memo.hit
             assert memo.value is None
 
@@ -501,7 +501,7 @@ class TestMemoBlock:
 
         # Load value
         with MemoBlock(key=key, storage=storage) as memo:
-            memo.load(key)
+            memo.load()
             assert memo.hit
             assert memo.value == test_value
 
@@ -521,7 +521,7 @@ class TestMemoBlock:
         assert storage.exists(key)
 
         with MemoBlock(key=key, storage=storage) as memo:
-            memo.load(key)
+            memo.load()
             assert memo.hit
             assert memo.value == test_value
 

@@ -157,7 +157,7 @@ class MemoBlock:
         self.staged_value: Any = _UNSET
 
     def __enter__(self) -> Self:
-        self.load(self.key)
+        self.load()
         return self
 
     def __exit__(self, *args: Any) -> None:
@@ -165,15 +165,15 @@ class MemoBlock:
 
         self.staged_value = _UNSET
 
-    def load(self, key: str) -> None:
+    def load(self) -> None:
         """
         Load the result of a function from the backend.
         """
         serializer_exceptions: list[Exception] = []
-        if self.storage.exists(key):
+        if self.storage.exists(self.key):
             for serializer in self.serializer:
                 try:
-                    self.value = serializer.deserialize(self.storage.get(key))
+                    self.value = serializer.deserialize(self.storage.get(self.key))
                     self.hit = True
                     break
                 except Exception as e:
