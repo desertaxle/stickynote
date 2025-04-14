@@ -79,7 +79,7 @@ class MemoizedCallable(Generic[P, R]):
                         )
                 return memo.value
             result = self.fn(*args, **kwargs)
-            memo.save(key, result)
+            memo.stage(key, result)
             return result
 
     def on_cache_hit(
@@ -130,6 +130,9 @@ def memoize(
         return MemoizedCallable(__fn, storage, serializer, key_strategy)
 
 
+_UNSET = object()
+
+
 class MemoBlock:
     """
     Context manager to load and save the result of a function to a backend.
@@ -148,11 +151,17 @@ class MemoBlock:
         else:
             self.serializer: tuple[Serializer, ...] = tuple(serializer)
 
+        self.staged_value: Any = _UNSET
+        self.key: str | None = None
+
     def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: Any) -> None:
-        pass
+        self.save()
+
+        self.staged_value = _UNSET
+        self.key = None
 
     def load(self, key: str) -> None:
         """
@@ -174,19 +183,32 @@ class MemoBlock:
                 serializer_exceptions,
             )
 
-    def save(self, key: str, value: Any) -> None:
+    def stage(self, key: str, value: Any) -> None:
+        """
+        Stage the result of a function to be saved.
+        """
+        self.key = key
+        self.staged_value = value
+
+    def save(self) -> None:
         """
         Save the result of a function to the backend.
         """
+        if self.key is None or self.staged_value is _UNSET:
+            return
+
         serializer_exceptions: list[Exception] = []
+        serialized_value = _UNSET
         for serializer in self.serializer:
             try:
-                self.storage.set(key, serializer.serialize(value))
+                serialized_value = serializer.serialize(self.staged_value)
                 break
             except Exception as e:
                 serializer_exceptions.append(e)
 
-        if len(serializer_exceptions) == len(self.serializer):
+        if not isinstance(serialized_value, str):
             raise ExceptionGroup(
                 "All serializers failed to serialize the result.", serializer_exceptions
             )
+
+        self.storage.set(self.key, serialized_value)
