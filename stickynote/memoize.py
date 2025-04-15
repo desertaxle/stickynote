@@ -227,7 +227,7 @@ class MemoBlock(BaseMemoBlock):
         if self.storage.exists(self.key):
             for serializer in self.serializer:
                 try:
-                    self.value = serializer.deserialize(self.storage.get(self.key))
+                    self.value: Any = serializer.deserialize(self.storage.get(self.key))
                     self.hit = True
                     break
                 except Exception as e:
@@ -280,10 +280,12 @@ class AsyncMemoBlock(BaseMemoBlock):
         Load the result of a function from the backend.
         """
         serializer_exceptions: list[Exception] = []
-        if self.storage.exists(self.key):
+        if await self.storage.exists_async(self.key):
             for serializer in self.serializer:
                 try:
-                    self.value = serializer.deserialize(self.storage.get(self.key))
+                    self.value: Any = serializer.deserialize(
+                        await self.storage.get_async(self.key)
+                    )
                     self.hit = True
                     break
                 except Exception as e:
@@ -316,4 +318,4 @@ class AsyncMemoBlock(BaseMemoBlock):
                 "All serializers failed to serialize the result.", serializer_exceptions
             )
 
-        self.storage.set(self.key, serialized_value)
+        await self.storage.set_async(self.key, serialized_value)
