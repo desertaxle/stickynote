@@ -61,6 +61,12 @@ class TestFileStorage:
         path.write_text("test")
         return path
 
+    def test_default_path(self):
+        assert FileStorage().path == Path.home() / ".stickynote"
+
+    def test_custom_path(self, tmp_path: Path):
+        assert FileStorage(tmp_path).path == tmp_path
+
     def test_exists(self, storage: FileStorage, existing_file: Path):
         assert storage.exists(existing_file.name)
 

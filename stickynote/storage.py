@@ -109,8 +109,9 @@ class FileStorage(MemoStorage):
     Disk-based storage for storing and retrieving memoized results.
     """
 
-    def __init__(self, path: Path | str):
-        self.path = Path(path)
+    def __init__(self, path: Path | str = Path.home() / ".stickynote"):
+        self.path: Path = Path(path)
+        self.path.mkdir(parents=True, exist_ok=True)
 
     def exists(self, key: str) -> bool:
         """
