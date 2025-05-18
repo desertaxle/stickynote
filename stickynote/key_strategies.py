@@ -59,7 +59,15 @@ class SourceCode(MemoKeyStrategy):
 
 class CompoundMemoKeyStrategy(MemoKeyStrategy):
     def __init__(self, *strategies: MemoKeyStrategy):
-        self.strategies = strategies
+        self.strategies: tuple[MemoKeyStrategy, ...] = tuple(
+            s
+            for strategy in strategies
+            for s in (
+                strategy.strategies
+                if isinstance(strategy, CompoundMemoKeyStrategy)
+                else [strategy]
+            )
+        )
 
     def compute(self, func: Callable[..., Any], args: Any, kwargs: Any) -> str:
         sha256 = hashlib.sha256()

@@ -16,6 +16,9 @@ jobs:
         python-version: ${{ matrix.python-version }}
         enable-cache: true
     - name: Run tests with no extras
-      run: uv run pytest
+      run: uv run pytest --cov=stickynote --cov-append
     - name: Run tests with all extras
-      run: uv run --all-extras pytest
+      run: uv run --all-extras pytest --cov=stickynote --cov-append
+    - name: Check coverage
+      run: |
+        coverage report --fail-under=100
