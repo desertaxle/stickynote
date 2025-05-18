@@ -1,4 +1,7 @@
+import threading
 from typing import Any
+
+import pytest
 
 from stickynote.key_strategies import (
     DEFAULT_STRATEGY,
@@ -231,3 +234,16 @@ def test_inputs_strategy_with_json_serialization_failure():
     # Different values should produce different keys
     key3 = strategy.compute(test_func, (CanNotBeSerializedToJson(2), 2), {})
     assert key1 != key3
+
+
+def test_inputs_strategy_with_pickle_serialization_failure():
+    """Test the Inputs strategy when pickle serialization fails."""
+    strategy = Inputs()
+
+    # Define a test function
+    def test_func(a: Any) -> Any:
+        return a
+
+    # Pass in a thread (which is not picklable)
+    with pytest.raises(ValueError):
+        strategy.compute(test_func, (threading.Thread(),), {})

@@ -130,3 +130,9 @@ def test_cloudpickle_serializer_import_error():
 
     assert "Unable to import cloudpickle" in str(excinfo.value)
     assert "install 'stickynote[cloudpickle]'" in str(excinfo.value)
+
+    with pytest.raises(ImportError) as excinfo:
+        serializer.deserialize("test")
+
+    assert "Unable to import cloudpickle" in str(excinfo.value)
+    assert "install 'stickynote[cloudpickle]'" in str(excinfo.value)
