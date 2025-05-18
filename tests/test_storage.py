@@ -53,11 +53,12 @@ class TestMemoryStorage:
 class TestFileStorage:
     @pytest.fixture
     def storage(self, tmp_path: Path):
-        return FileStorage(tmp_path)
+        return FileStorage(tmp_path / ".stickynote")
 
     @pytest.fixture
     def existing_file(self, storage: FileStorage):
         path = storage.path / "test"
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("test")
         return path
 

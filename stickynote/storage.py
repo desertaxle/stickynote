@@ -111,7 +111,13 @@ class FileStorage(MemoStorage):
 
     def __init__(self, path: Path | str = Path.home() / ".stickynote"):
         self.path: Path = Path(path)
-        self.path.mkdir(parents=True, exist_ok=True)
+
+    def _ensure_directory_exists(self) -> None:
+        """
+        Ensure the storage directory exists, creating it if necessary.
+        """
+        if not self.path.exists():
+            self.path.mkdir(parents=True, exist_ok=True)
 
     def exists(self, key: str) -> bool:
         """
@@ -151,12 +157,14 @@ class FileStorage(MemoStorage):
         """
         Set the value of a key in the file.
         """
+        self._ensure_directory_exists()
         (self.path / key).write_text(value)
 
     async def set_async(self, key: str, value: str) -> None:
         """
         Set the value of a key in the file.
         """
+        self._ensure_directory_exists()
         await asyncio.to_thread((self.path / key).write_text, value)
 
 
