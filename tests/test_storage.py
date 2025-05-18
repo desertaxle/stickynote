@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from stickynote.storage import FileStorage, MemoryStorage
+from stickynote.storage import FileStorage, MemoryStorage, MissingMemoError
 
 
 class TestMemoryStorage:
@@ -34,10 +34,12 @@ class TestMemoryStorage:
         assert await storage.get_async(existing_key) == "test"
 
     def test_get_nonexistent(self, storage: MemoryStorage):
-        assert storage.get("test") is None
+        with pytest.raises(MissingMemoError):
+            storage.get("test")
 
     async def test_get_async_nonexistent(self, storage: MemoryStorage):
-        assert await storage.get_async("test") is None
+        with pytest.raises(MissingMemoError):
+            await storage.get_async("test")
 
     def test_set(self, storage: MemoryStorage):
         storage.set("test", "test")
@@ -78,10 +80,12 @@ class TestFileStorage:
         assert await storage.get_async(existing_file.name) == "test"
 
     def test_get_nonexistent(self, storage: FileStorage):
-        assert storage.get("test") is None
+        with pytest.raises(MissingMemoError):
+            storage.get("test")
 
     async def test_get_async_nonexistent(self, storage: FileStorage):
-        assert await storage.get_async("test") is None
+        with pytest.raises(MissingMemoError):
+            await storage.get_async("test")
 
     def test_set(self, storage: FileStorage):
         storage.set("test", "test")

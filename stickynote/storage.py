@@ -5,6 +5,12 @@ from pathlib import Path
 from typing import Protocol
 
 
+class MissingMemoError(Exception):
+    """
+    Exception raised when a memoized result is not found in the storage backend.
+    """
+
+
 class MemoStorage(Protocol):
     """
     Protocol for a storage backend to store and retrieve memoized results.
@@ -22,13 +28,13 @@ class MemoStorage(Protocol):
         """
         ...  # pragma: no cover
 
-    def get(self, key: str) -> str | None:
+    def get(self, key: str) -> str:
         """
         Get the value of a key from the backend.
         """
         ...  # pragma: no cover
 
-    async def get_async(self, key: str) -> str | None:
+    async def get_async(self, key: str) -> str:
         """
         Get the value of a key from the backend.
         """
@@ -67,17 +73,23 @@ class MemoryStorage(MemoStorage):
         """
         return key in self.cache
 
-    def get(self, key: str) -> str | None:
+    def get(self, key: str) -> str:
         """
         Get the value of a key from the cache.
         """
-        return self.cache.get(key)
+        value = self.cache.get(key)
+        if value is None:
+            raise MissingMemoError(f"Memo for key {key} not found in memory cache")
+        return value
 
-    async def get_async(self, key: str) -> str | None:
+    async def get_async(self, key: str) -> str:
         """
         Get the value of a key from the cache.
         """
-        return self.cache.get(key)
+        value = self.cache.get(key)
+        if value is None:
+            raise MissingMemoError(f"Memo for key {key} not found in memory cache")
+        return value
 
     def set(self, key: str, value: str) -> None:
         """
@@ -112,23 +124,27 @@ class FileStorage(MemoStorage):
         """
         return await asyncio.to_thread((self.path / key).exists)
 
-    def get(self, key: str) -> str | None:
+    def get(self, key: str) -> str:
         """
         Get the value of a key from the file.
         """
         try:
             return (self.path / key).read_text()
-        except FileNotFoundError:
-            return None
+        except FileNotFoundError as e:
+            raise MissingMemoError(
+                f"Memo for key {key} not found in file storage"
+            ) from e
 
-    async def get_async(self, key: str) -> str | None:
+    async def get_async(self, key: str) -> str:
         """
         Get the value of a key from the file.
         """
         try:
             return await asyncio.to_thread((self.path / key).read_text)
-        except FileNotFoundError:
-            return None
+        except FileNotFoundError as e:
+            raise MissingMemoError(
+                f"Memo for key {key} not found in file storage"
+            ) from e
 
     def set(self, key: str, value: str) -> None:
         """
