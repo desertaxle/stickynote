@@ -1,4 +1,7 @@
+import threading
 from typing import Any
+
+import pytest
 
 from stickynote.key_strategies import (
     DEFAULT_STRATEGY,
@@ -148,6 +151,21 @@ def test_strategy_addition():
     # The keys should be the same
     assert key3 == key4
 
+    # Test adding two compound strategies
+    compound5 = compound1 + compound2
+
+    # This should be equivalent to
+    compound6 = CompoundMemoKeyStrategy(inputs, source_code, inputs, source_code)
+    compound7 = CompoundMemoKeyStrategy(compound1, compound2)
+
+    # Get the keys using both compound strategies
+    key5 = compound5.compute(test_func, (1, 2), {})
+    key6 = compound6.compute(test_func, (1, 2), {})
+    key7 = compound7.compute(test_func, (1, 2), {})
+
+    # The keys should be the same
+    assert key5 == key6 == key7
+
 
 def test_default_strategy():
     """Test the DEFAULT_STRATEGY."""
@@ -216,3 +234,16 @@ def test_inputs_strategy_with_json_serialization_failure():
     # Different values should produce different keys
     key3 = strategy.compute(test_func, (CanNotBeSerializedToJson(2), 2), {})
     assert key1 != key3
+
+
+def test_inputs_strategy_with_pickle_serialization_failure():
+    """Test the Inputs strategy when pickle serialization fails."""
+    strategy = Inputs()
+
+    # Define a test function
+    def test_func(a: Any) -> Any:
+        return a
+
+    # Pass in a thread (which is not picklable)
+    with pytest.raises(ValueError):
+        strategy.compute(test_func, (threading.Thread(),), {})
