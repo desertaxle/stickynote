@@ -21,4 +21,4 @@ jobs:
       run: uv run --all-extras pytest --cov=stickynote --cov-append
     - name: Check coverage
       run: |
-        coverage report --fail-under=100
+        coverage report --fail-under=100 --skip-covered --show-missing  
