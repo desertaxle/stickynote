@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import base64
-from datetime import timezone, datetime
-import pickle
-from typing import Any, Callable
 import importlib.util
+import pickle
+from datetime import datetime, timezone
+from typing import Any, Callable
 from unittest.mock import MagicMock
-from freezegun import freeze_time
 
 import pytest
+from exceptiongroup import ExceptionGroup
+from freezegun import freeze_time
 
 from stickynote import memoize
 from stickynote.key_strategies import (
@@ -24,7 +25,6 @@ from stickynote.serializers import (
     Serializer,
 )
 from stickynote.storage import MemoryStorage
-from exceptiongroup import ExceptionGroup
 
 # Test CloudPickleSerializer only if cloudpickle is available
 HAS_CLOUDPICKLE = importlib.util.find_spec("cloudpickle") is not None

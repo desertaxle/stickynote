@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import timezone, datetime
-from functools import partial, update_wrapper
 import inspect
 import logging
+from datetime import datetime, timezone
+from functools import partial, update_wrapper
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -17,8 +17,8 @@ from typing import (
     overload,
 )
 
-from typing_extensions import ParamSpec, Self
 from exceptiongroup import ExceptionGroup
+from typing_extensions import ParamSpec, Self
 
 from stickynote.key_strategies import DEFAULT_STRATEGY, MemoKeyStrategy
 from stickynote.serializers import DEFAULT_SERIALIZER_CHAIN, Serializer

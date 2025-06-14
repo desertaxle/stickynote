@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
-import base64
 from typing import Any, Callable
+
 import pytest
 
 from stickynote.serializers import (
+    DEFAULT_SERIALIZER_CHAIN,
+    CloudPickleSerializer,
     JsonSerializer,
     PickleSerializer,
-    CloudPickleSerializer,
-    DEFAULT_SERIALIZER_CHAIN,
 )
 
 
