@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from .base import MemoStorage, MissingMemoError
 
@@ -9,6 +9,10 @@ try:
     import redis.asyncio
 except ImportError:
     redis = None
+
+if TYPE_CHECKING:
+    from redis import Redis as RedisClient
+    from redis.asyncio import Redis as AsyncRedisClient
 
 
 class RedisStorage(MemoStorage):
@@ -30,9 +34,9 @@ class RedisStorage(MemoStorage):
                 "redis-py is required for RedisStorage. "
                 "Install it with: pip install 'stickynote[redis]'"
             )
-        
+
         self.prefix = prefix
-        self.client = redis.Redis(
+        self.client: "RedisClient" = redis.Redis(
             host=host,
             port=port,
             db=db,
@@ -40,7 +44,7 @@ class RedisStorage(MemoStorage):
             decode_responses=True,
             **kwargs,
         )
-        self.async_client = redis.asyncio.Redis(
+        self.async_client: "AsyncRedisClient" = redis.asyncio.Redis(
             host=host,
             port=port,
             db=db,

@@ -1,20 +1,18 @@
 import builtins
 import importlib
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
 from stickynote.storage import MissingMemoError
+from stickynote.storage.redis import RedisStorage
 
 try:
-    from stickynote.storage import RedisStorage
+    import redis  # type: ignore
     redis_available = True
 except ImportError:
     redis_available = False
-
-if TYPE_CHECKING:
-    from stickynote.storage import RedisStorage
 
 @pytest.mark.skipif(not redis_available, reason="redis-py not available")
 class TestRedisStorage:
