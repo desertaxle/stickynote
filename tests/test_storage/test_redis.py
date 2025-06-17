@@ -5,14 +5,15 @@ from typing import Any
 
 import pytest
 
-from stickynote.storage import MissingMemoError
-from stickynote.storage.redis import RedisStorage
+from stickynote.storage import MissingMemoError, RedisStorage
 
 try:
     import redis  # type: ignore
+
     redis_available = True
 except ImportError:
     redis_available = False
+
 
 @pytest.mark.skipif(not redis_available, reason="redis-py not available")
 class TestRedisStorage:
@@ -77,25 +78,26 @@ class TestRedisStorage:
 def test_redis_import_error():
     """Test that RedisStorage raises ImportError when redis-py is not available."""
     # Temporarily remove redis from sys.modules
-    redis_module = sys.modules.get('redis')
-    if 'redis' in sys.modules:
-        del sys.modules['redis']
-    
+    redis_module = sys.modules.get("redis")
+    if "redis" in sys.modules:
+        del sys.modules["redis"]
+
     # Mock the import to fail
     original_import = builtins.__import__
-    
+
     def mock_import(name: str, *args: Any) -> Any:
-        if name == 'redis':
+        if name == "redis":
             raise ImportError("No module named 'redis'")
         return original_import(name, *args)
-    
+
     builtins.__import__ = mock_import
-    
+
     try:
         # Re-import the module to trigger the ImportError
         from stickynote.storage import redis as redis_module_local
+
         importlib.reload(redis_module_local)
-        
+
         with pytest.raises(ImportError, match="redis-py is required for RedisStorage"):
             redis_module_local.RedisStorage()
     finally:
@@ -103,4 +105,4 @@ def test_redis_import_error():
         builtins.__import__ = original_import
         # Restore redis module if it was there
         if redis_module is not None:
-            sys.modules['redis'] = redis_module
+            sys.modules["redis"] = redis_module
