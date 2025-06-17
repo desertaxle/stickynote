@@ -11,8 +11,8 @@ except ImportError:
     redis = None
 
 if TYPE_CHECKING:
-    from redis import Redis as RedisClient
-    from redis.asyncio import Redis as AsyncRedisClient
+    from redis import Redis as RedisClient  # pragma: no cover
+    from redis.asyncio import Redis as AsyncRedisClient  # pragma: no cover
 
 
 class RedisStorage(MemoStorage):
