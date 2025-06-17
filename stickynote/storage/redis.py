@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from .base import MemoStorage, MissingMemoError
 
@@ -73,7 +73,7 @@ class RedisStorage(MemoStorage):
         """
         Get the value of a key from Redis.
         """
-        value = cast(str | None, self.client.get(self._key(key)))
+        value = cast(Optional[str], self.client.get(self._key(key)))
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")
         return value
@@ -82,7 +82,7 @@ class RedisStorage(MemoStorage):
         """
         Get the value of a key from Redis.
         """
-        value = cast(str | None, await self.async_client.get(self._key(key)))
+        value = cast(Optional[str], await self.async_client.get(self._key(key)))
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")
         return value
