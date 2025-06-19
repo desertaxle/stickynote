@@ -7,7 +7,22 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version:
+          - "3.9"
+          - "3.10"
+          - "3.11"
+          - "3.12"
+          - "3.13"
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
     steps:
     - uses: actions/checkout@v4
     - name: Install uv and set the python version
@@ -17,12 +32,6 @@ jobs:
         enable-cache: true
     - name: Run tests with no extras
       run: uv run pytest --cov=stickynote --cov-append
-    - name: Start Redis server
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y redis-server
-        sudo systemctl start redis-server
-        sudo systemctl enable redis-server
     - name: Run tests with all extras
       run: uv run --all-extras pytest --cov=stickynote --cov-append
     - name: Check coverage
