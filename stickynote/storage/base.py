@@ -10,7 +10,7 @@ class MissingMemoError(Exception):
     """
 
 
-class ExpiredMemoError(Exception):
+class ExpiredMemoError(MissingMemoError):
     """
     Exception raised when a memoized result is found but falls outside the requested time window.
     """
@@ -22,7 +22,10 @@ class MemoStorage(Protocol):
     """
 
     def exists(
-        self, key: str, max_age: timedelta | None = None, since: datetime | None = None
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
     ) -> bool:
         """
         Check if a key exists in the backend and is valid according to expiration rules.
@@ -30,12 +33,15 @@ class MemoStorage(Protocol):
         Args:
             key: The key to check
             max_age: Maximum age of the record to be considered valid
-            since: Only consider records created at or after this datetime
+            created_after: Only consider records created at or after this datetime
         """
         ...  # pragma: no cover
 
     async def exists_async(
-        self, key: str, max_age: timedelta | None = None, since: datetime | None = None
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
     ) -> bool:
         """
         Check if a key exists in the backend and is valid according to expiration rules.
@@ -43,12 +49,15 @@ class MemoStorage(Protocol):
         Args:
             key: The key to check
             max_age: Maximum age of the record to be considered valid
-            since: Only consider records created at or after this datetime
+            created_after: Only consider records created at or after this datetime
         """
         ...  # pragma: no cover
 
     def get(
-        self, key: str, max_age: timedelta | None = None, since: datetime | None = None
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
     ) -> str:
         """
         Get the value of a key from the backend if it exists and is valid.
@@ -56,7 +65,7 @@ class MemoStorage(Protocol):
         Args:
             key: The key to retrieve
             max_age: Maximum age of the record to be considered valid
-            since: Only consider records created at or after this datetime
+            created_after: Only consider records created at or after this datetime
 
         Raises:
             MissingMemoError: If the key doesn't exist or is expired
@@ -64,7 +73,10 @@ class MemoStorage(Protocol):
         ...  # pragma: no cover
 
     async def get_async(
-        self, key: str, max_age: timedelta | None = None, since: datetime | None = None
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
     ) -> str:
         """
         Get the value of a key from the backend if it exists and is valid.
@@ -72,7 +84,7 @@ class MemoStorage(Protocol):
         Args:
             key: The key to retrieve
             max_age: Maximum age of the record to be considered valid
-            since: Only consider records created at or after this datetime
+            created_after: Only consider records created at or after this datetime
 
         Raises:
             MissingMemoError: If the key doesn't exist or is expired

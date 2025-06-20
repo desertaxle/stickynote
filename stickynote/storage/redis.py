@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from .base import MemoStorage, MissingMemoError
@@ -57,31 +58,67 @@ class RedisStorage(MemoStorage):
         """Add prefix to key."""
         return f"{self.prefix}{key}"
 
-    def exists(self, key: str) -> bool:
+    def exists(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> bool:
         """
         Check if a key exists in Redis.
         """
+        if max_age is not None or created_after is not None:
+            raise NotImplementedError(
+                "max_age and created_after are not yet supported for Redis storage"
+            )
         return bool(self.client.exists(self._key(key)))
 
-    async def exists_async(self, key: str) -> bool:
+    async def exists_async(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> bool:
         """
         Check if a key exists in Redis.
         """
+        if max_age is not None or created_after is not None:
+            raise NotImplementedError(
+                "max_age and created_after are not yet supported for Redis storage"
+            )
         return bool(await self.async_client.exists(self._key(key)))
 
-    def get(self, key: str) -> str:
+    def get(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> str:
         """
         Get the value of a key from Redis.
         """
+        if max_age is not None or created_after is not None:
+            raise NotImplementedError(
+                "max_age and created_after are not yet supported for Redis storage"
+            )
         value = cast(Optional[str], self.client.get(self._key(key)))
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")
         return value
 
-    async def get_async(self, key: str) -> str:
+    async def get_async(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> str:
         """
         Get the value of a key from Redis.
         """
+        if max_age is not None or created_after is not None:
+            raise NotImplementedError(
+                "max_age and created_after are not yet supported for Redis storage"
+            )
         value = cast(Optional[str], await self.async_client.get(self._key(key)))
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .base import MemoStorage, MissingMemoError
@@ -21,22 +22,49 @@ class FileStorage(MemoStorage):
         if not self.path.exists():
             self.path.mkdir(parents=True, exist_ok=True)
 
-    def exists(self, key: str) -> bool:
+    def exists(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> bool:
         """
         Check if a key exists in the file.
         """
+        if max_age is not None or created_after is not None:
+            raise NotImplementedError(
+                "max_age and created_after are not yet supported for file storage"
+            )
         return (self.path / key).exists()
 
-    async def exists_async(self, key: str) -> bool:
+    async def exists_async(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> bool:
         """
         Check if a key exists in the file.
         """
+        if max_age is not None or created_after is not None:
+            raise NotImplementedError(
+                "max_age and created_after are not yet supported for file storage"
+            )
         return await asyncio.to_thread((self.path / key).exists)
 
-    def get(self, key: str) -> str:
+    def get(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> str:
         """
         Get the value of a key from the file.
         """
+        if max_age is not None or created_after is not None:
+            raise NotImplementedError(
+                "max_age and created_after are not yet supported for file storage"
+            )
         try:
             return (self.path / key).read_text()
         except FileNotFoundError as e:
@@ -44,10 +72,19 @@ class FileStorage(MemoStorage):
                 f"Memo for key {key} not found in file storage"
             ) from e
 
-    async def get_async(self, key: str) -> str:
+    async def get_async(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> str:
         """
         Get the value of a key from the file.
         """
+        if max_age is not None or created_after is not None:
+            raise NotImplementedError(
+                "max_age and created_after are not yet supported for file storage"
+            )
         try:
             return await asyncio.to_thread((self.path / key).read_text)
         except FileNotFoundError as e:
