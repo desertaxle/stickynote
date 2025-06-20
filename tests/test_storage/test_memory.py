@@ -21,7 +21,7 @@ class TestMemoryStorage:
 
     def test_exists_with_max_age(self, storage: MemoryStorage, existing_key: str):
         assert storage.exists(existing_key, max_age=timedelta(seconds=10))
-        # a valid record isn't found becuase the existing one is more than 1 microsecond old
+        # a valid record isn't found because the existing one is more than 1 microsecond old
         assert not storage.exists(existing_key, max_age=timedelta(microseconds=1))
 
     def test_exists_with_created_after(self, storage: MemoryStorage, existing_key: str):
