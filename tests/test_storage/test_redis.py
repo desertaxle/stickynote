@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import importlib
 import sys
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -32,11 +33,37 @@ class TestRedisStorage:
     def test_exists(self, storage: RedisStorage, existing_key: str):
         assert storage.exists(existing_key)
 
+    def test_exists_nonexistent(self, storage: RedisStorage):
+        assert not storage.exists("nonexistent")
+
+    def test_exists_with_max_age(self, storage: RedisStorage, existing_key: str):
+        with pytest.raises(NotImplementedError):
+            storage.exists(existing_key, max_age=timedelta(seconds=10))
+
+    def test_exists_with_created_after(self, storage: RedisStorage, existing_key: str):
+        with pytest.raises(NotImplementedError):
+            storage.exists(
+                existing_key,
+                created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
+            )
+
     async def test_exists_async(self, storage: RedisStorage, existing_key: str):
         assert await storage.exists_async(existing_key)
 
-    def test_exists_nonexistent(self, storage: RedisStorage):
-        assert not storage.exists("nonexistent")
+    async def test_exists_async_with_max_age(
+        self, storage: RedisStorage, existing_key: str
+    ):
+        with pytest.raises(NotImplementedError):
+            await storage.exists_async(existing_key, max_age=timedelta(seconds=10))
+
+    async def test_exists_async_with_created_after(
+        self, storage: RedisStorage, existing_key: str
+    ):
+        with pytest.raises(NotImplementedError):
+            await storage.exists_async(
+                existing_key,
+                created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
+            )
 
     async def test_exists_async_nonexistent(self, storage: RedisStorage):
         assert not await storage.exists_async("nonexistent")
@@ -44,12 +71,38 @@ class TestRedisStorage:
     def test_get(self, storage: RedisStorage, existing_key: str):
         assert storage.get(existing_key) == "test"
 
-    async def test_get_async(self, storage: RedisStorage, existing_key: str):
-        assert await storage.get_async(existing_key) == "test"
+    def test_get_with_max_age(self, storage: RedisStorage, existing_key: str):
+        with pytest.raises(NotImplementedError):
+            storage.get(existing_key, max_age=timedelta(seconds=10))
+
+    def test_get_with_created_after(self, storage: RedisStorage, existing_key: str):
+        with pytest.raises(NotImplementedError):
+            storage.get(
+                existing_key,
+                created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
+            )
 
     def test_get_nonexistent(self, storage: RedisStorage):
         with pytest.raises(MissingMemoError):
             storage.get("nonexistent")
+
+    async def test_get_async(self, storage: RedisStorage, existing_key: str):
+        assert await storage.get_async(existing_key) == "test"
+
+    async def test_get_async_with_max_age(
+        self, storage: RedisStorage, existing_key: str
+    ):
+        with pytest.raises(NotImplementedError):
+            await storage.get_async(existing_key, max_age=timedelta(seconds=10))
+
+    async def test_get_async_with_created_after(
+        self, storage: RedisStorage, existing_key: str
+    ):
+        with pytest.raises(NotImplementedError):
+            await storage.get_async(
+                existing_key,
+                created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
+            )
 
     async def test_get_async_nonexistent(self, storage: RedisStorage):
         with pytest.raises(MissingMemoError):
