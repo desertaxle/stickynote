@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from stickynote.storage import FileStorage, MissingMemoError
+from stickynote.storage.base import ExpiredMemoError
 
 
 class TestFileStorage:
@@ -31,15 +32,18 @@ class TestFileStorage:
         assert not storage.exists("test")
 
     def test_exists_with_max_age(self, storage: FileStorage, existing_file: Path):
-        with pytest.raises(NotImplementedError):
-            storage.exists(existing_file.name, max_age=timedelta(seconds=10))
+        assert storage.exists(existing_file.name, max_age=timedelta(seconds=10))
+        assert not storage.exists(existing_file.name, max_age=timedelta(microseconds=1))
 
     def test_exists_with_created_after(self, storage: FileStorage, existing_file: Path):
-        with pytest.raises(NotImplementedError):
-            storage.exists(
-                existing_file.name,
-                created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
-            )
+        assert storage.exists(
+            existing_file.name,
+            created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
+        )
+        assert not storage.exists(
+            existing_file.name,
+            created_after=datetime.now(timezone.utc) + timedelta(microseconds=1),
+        )
 
     async def test_exists_async(self, storage: FileStorage, existing_file: Path):
         assert await storage.exists_async(existing_file.name)
@@ -47,19 +51,24 @@ class TestFileStorage:
     async def test_exists_async_with_max_age(
         self, storage: FileStorage, existing_file: Path
     ):
-        with pytest.raises(NotImplementedError):
-            await storage.exists_async(
-                existing_file.name, max_age=timedelta(seconds=10)
-            )
+        assert await storage.exists_async(
+            existing_file.name, max_age=timedelta(seconds=10)
+        )
+        assert not await storage.exists_async(
+            existing_file.name, max_age=timedelta(microseconds=1)
+        )
 
     async def test_exists_async_with_created_after(
         self, storage: FileStorage, existing_file: Path
     ):
-        with pytest.raises(NotImplementedError):
-            await storage.exists_async(
-                existing_file.name,
-                created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
-            )
+        assert await storage.exists_async(
+            existing_file.name,
+            created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
+        )
+        assert not await storage.exists_async(
+            existing_file.name,
+            created_after=datetime.now(timezone.utc) + timedelta(microseconds=1),
+        )
 
     async def test_exists_async_nonexistent(self, storage: FileStorage):
         assert not await storage.exists_async("test")
@@ -72,14 +81,19 @@ class TestFileStorage:
             storage.get("test")
 
     def test_get_with_max_age(self, storage: FileStorage, existing_file: Path):
-        with pytest.raises(NotImplementedError):
-            storage.get(existing_file.name, max_age=timedelta(seconds=10))
+        assert storage.get(existing_file.name, max_age=timedelta(seconds=10)) == "test"
+        with pytest.raises(ExpiredMemoError):
+            storage.get(existing_file.name, max_age=timedelta(microseconds=1))
 
     def test_get_with_created_after(self, storage: FileStorage, existing_file: Path):
-        with pytest.raises(NotImplementedError):
+        assert storage.get(
+            existing_file.name,
+            created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
+        )
+        with pytest.raises(ExpiredMemoError):
             storage.get(
                 existing_file.name,
-                created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
+                created_after=datetime.now(timezone.utc) + timedelta(microseconds=1),
             )
 
     async def test_get_async(self, storage: FileStorage, existing_file: Path):
@@ -88,16 +102,29 @@ class TestFileStorage:
     async def test_get_async_with_max_age(
         self, storage: FileStorage, existing_file: Path
     ):
-        with pytest.raises(NotImplementedError):
+        assert (
             await storage.get_async(existing_file.name, max_age=timedelta(seconds=10))
+            == "test"
+        )
+        with pytest.raises(ExpiredMemoError):
+            await storage.get_async(
+                existing_file.name, max_age=timedelta(microseconds=1)
+            )
 
     async def test_get_async_with_created_after(
         self, storage: FileStorage, existing_file: Path
     ):
-        with pytest.raises(NotImplementedError):
+        assert (
             await storage.get_async(
                 existing_file.name,
                 created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
+            )
+            == "test"
+        )
+        with pytest.raises(ExpiredMemoError):
+            await storage.get_async(
+                existing_file.name,
+                created_after=datetime.now(timezone.utc) + timedelta(microseconds=1),
             )
 
     async def test_get_async_nonexistent(self, storage: FileStorage):
