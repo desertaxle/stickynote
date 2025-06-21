@@ -31,12 +31,13 @@ class FileStorage(MemoStorage):
         path = self.path / key
         if not path.exists():
             return False
+        stat_result = path.stat()
         if max_age is not None:
-            created_at = datetime.fromtimestamp(path.stat().st_mtime)
+            created_at = datetime.fromtimestamp(stat_result.st_mtime)
             if (datetime.now() - created_at) > max_age:
                 return False
         if created_after is not None:
-            created_at = datetime.fromtimestamp(path.stat().st_mtime)
+            created_at = datetime.fromtimestamp(stat_result.st_mtime)
             created_at = created_at.astimezone(tz=timezone.utc)
             if created_at < created_after:
                 return False
