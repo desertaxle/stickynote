@@ -75,14 +75,15 @@ class FileStorage(MemoStorage):
         """
         Get the value of a key from the file.
         """
-        if not self._is_valid(key, max_age, created_after):
-            raise ExpiredMemoError(f"Memo for key {key} has expired in file storage")
         try:
-            return (self.path / key).read_text()
+            value = (self.path / key).read_text()
         except FileNotFoundError as e:
             raise MissingMemoError(
                 f"Memo for key {key} not found in file storage"
             ) from e
+        if not self._is_valid(key, max_age, created_after):
+            raise ExpiredMemoError(f"Memo for key {key} has expired in file storage")
+        return value
 
     async def get_async(
         self,
