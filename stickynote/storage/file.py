@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .base import MemoStorage, MissingMemoError
+from .base import ExpiredMemoError, MemoStorage, MissingMemoError
 
 
 class FileStorage(MemoStorage):
@@ -22,6 +22,26 @@ class FileStorage(MemoStorage):
         if not self.path.exists():
             self.path.mkdir(parents=True, exist_ok=True)
 
+    def _is_valid(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> bool:
+        path = self.path / key
+        if not path.exists():
+            return False
+        if max_age is not None:
+            created_at = datetime.fromtimestamp(path.stat().st_mtime)
+            if (datetime.now() - created_at) > max_age:
+                return False
+        if created_after is not None:
+            created_at = datetime.fromtimestamp(path.stat().st_mtime)
+            created_at = created_at.astimezone(tz=timezone.utc)
+            if created_at < created_after:
+                return False
+        return True
+
     def exists(
         self,
         key: str,
@@ -31,11 +51,7 @@ class FileStorage(MemoStorage):
         """
         Check if a key exists in the file.
         """
-        if max_age is not None or created_after is not None:
-            raise NotImplementedError(
-                "max_age and created_after are not yet supported for file storage"
-            )
-        return (self.path / key).exists()
+        return self._is_valid(key, max_age, created_after)
 
     async def exists_async(
         self,
@@ -46,11 +62,9 @@ class FileStorage(MemoStorage):
         """
         Check if a key exists in the file.
         """
-        if max_age is not None or created_after is not None:
-            raise NotImplementedError(
-                "max_age and created_after are not yet supported for file storage"
-            )
-        return await asyncio.to_thread((self.path / key).exists)
+        return await asyncio.to_thread(
+            self.exists, key=key, max_age=max_age, created_after=created_after
+        )
 
     def get(
         self,
@@ -61,10 +75,8 @@ class FileStorage(MemoStorage):
         """
         Get the value of a key from the file.
         """
-        if max_age is not None or created_after is not None:
-            raise NotImplementedError(
-                "max_age and created_after are not yet supported for file storage"
-            )
+        if not self._is_valid(key, max_age, created_after):
+            raise ExpiredMemoError(f"Memo for key {key} has expired in file storage")
         try:
             return (self.path / key).read_text()
         except FileNotFoundError as e:
@@ -81,16 +93,9 @@ class FileStorage(MemoStorage):
         """
         Get the value of a key from the file.
         """
-        if max_age is not None or created_after is not None:
-            raise NotImplementedError(
-                "max_age and created_after are not yet supported for file storage"
-            )
-        try:
-            return await asyncio.to_thread((self.path / key).read_text)
-        except FileNotFoundError as e:
-            raise MissingMemoError(
-                f"Memo for key {key} not found in file storage"
-            ) from e
+        return await asyncio.to_thread(
+            self.get, key=key, max_age=max_age, created_after=created_after
+        )
 
     def set(self, key: str, value: str) -> None:
         """
