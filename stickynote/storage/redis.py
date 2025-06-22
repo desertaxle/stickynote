@@ -143,7 +143,9 @@ class RedisStorage(MemoStorage):
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")
         if not self._is_valid(key, max_age, created_after):
-            raise ExpiredMemoError(f"Memo for key {key} has expired in Redis")
+            raise ExpiredMemoError(
+                f"Memo for key {key} is not valid in the requested time window"
+            )
         return value
 
     async def get_async(
