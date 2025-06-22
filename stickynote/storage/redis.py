@@ -139,11 +139,11 @@ class RedisStorage(MemoStorage):
         """
         Get the value of a key from Redis.
         """
-        if not self._is_valid(key, max_age, created_after):
-            raise ExpiredMemoError(f"Memo for key {key} has expired in Redis")
         value = cast(Optional[str], self.client.get(self._key(key)))
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")
+        if not self._is_valid(key, max_age, created_after):
+            raise ExpiredMemoError(f"Memo for key {key} has expired in Redis")
         return value
 
     async def get_async(
@@ -155,13 +155,13 @@ class RedisStorage(MemoStorage):
         """
         Get the value of a key from Redis.
         """
+        value = cast(Optional[str], await self.async_client.get(self._key(key)))
+        if value is None:
+            raise MissingMemoError(f"Memo for key {key} not found in Redis")
         if not await self._is_valid_async(key, max_age, created_after):
             raise ExpiredMemoError(
                 f"Memo for key {key} is not valid in the requested time window"
             )
-        value = cast(Optional[str], await self.async_client.get(self._key(key)))
-        if value is None:
-            raise MissingMemoError(f"Memo for key {key} not found in Redis")
         return value
 
     def set(self, key: str, value: str) -> None:
