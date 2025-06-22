@@ -100,6 +100,12 @@ class TestRedisStorage:
         with pytest.raises(MissingMemoError):
             storage.get("nonexistent")
 
+    def test_get_with_missing_created_at(self, storage: RedisStorage):
+        key = "test-without-created-at"
+        storage.client.set(f"stickynote:{key}", "test")
+        with pytest.raises(ExpiredMemoError):
+            storage.get(key)
+
     async def test_get_async(self, storage: RedisStorage, existing_key: str):
         assert await storage.get_async(existing_key) == "test"
 
@@ -126,6 +132,12 @@ class TestRedisStorage:
     async def test_get_async_nonexistent(self, storage: RedisStorage):
         with pytest.raises(MissingMemoError):
             await storage.get_async("nonexistent")
+
+    async def test_get_async_with_missing_created_at(self, storage: RedisStorage):
+        key = "test-without-created-at-async"
+        await storage.async_client.set(f"stickynote:{key}", "test")
+        with pytest.raises(ExpiredMemoError):
+            await storage.get_async(key)
 
     def test_set(self, storage: RedisStorage):
         storage.set("test", "test")
