@@ -124,7 +124,7 @@ class TestRedisStorage:
             created_after=datetime.now(timezone.utc) - timedelta(seconds=10),
         )
         with pytest.raises(ExpiredMemoError):
-            assert await storage.get_async(
+            await storage.get_async(
                 existing_key,
                 created_after=datetime.now(timezone.utc) + timedelta(microseconds=1),
             )
