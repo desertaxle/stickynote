@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional, cast
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
-from .base import MemoStorage, MissingMemoError
+from .base import ExpiredMemoError, MemoStorage, MissingMemoError
 
 try:
     import redis
@@ -58,6 +58,52 @@ class RedisStorage(MemoStorage):
         """Add prefix to key."""
         return f"{self.prefix}{key}"
 
+    def _created_at_key(self, key: str) -> str:
+        """Add created_at to key."""
+        return f"{self.prefix}{key}:created_at"
+
+    def _is_valid(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> bool:
+        """Check if a key is valid according to expiration rules."""
+        created_at_timestamp = cast(
+            Union[str, None], self.client.get(self._created_at_key(key))
+        )
+        if created_at_timestamp is None:
+            return False
+        created_at = datetime.fromisoformat(created_at_timestamp)
+        if max_age is not None:
+            if (datetime.now(timezone.utc) - created_at) > max_age:
+                return False
+        if created_after is not None:
+            if created_at < created_after:
+                return False
+        return True
+
+    async def _is_valid_async(
+        self,
+        key: str,
+        max_age: timedelta | None = None,
+        created_after: datetime | None = None,
+    ) -> bool:
+        """Check if a key is valid according to expiration rules."""
+        created_at_timestamp = cast(
+            Union[str, None], await self.async_client.get(self._created_at_key(key))
+        )
+        if created_at_timestamp is None:
+            return False
+        created_at = datetime.fromisoformat(created_at_timestamp)
+        if max_age is not None:
+            if (datetime.now(timezone.utc) - created_at) > max_age:
+                return False
+        if created_after is not None:
+            if created_at < created_after:
+                return False
+        return True
+
     def exists(
         self,
         key: str,
@@ -67,11 +113,9 @@ class RedisStorage(MemoStorage):
         """
         Check if a key exists in Redis.
         """
-        if max_age is not None or created_after is not None:
-            raise NotImplementedError(
-                "max_age and created_after are not yet supported for Redis storage"
-            )
-        return bool(self.client.exists(self._key(key)))
+        return bool(self.client.exists(self._key(key))) and self._is_valid(
+            key, max_age, created_after
+        )
 
     async def exists_async(
         self,
@@ -82,11 +126,9 @@ class RedisStorage(MemoStorage):
         """
         Check if a key exists in Redis.
         """
-        if max_age is not None or created_after is not None:
-            raise NotImplementedError(
-                "max_age and created_after are not yet supported for Redis storage"
-            )
-        return bool(await self.async_client.exists(self._key(key)))
+        return bool(
+            await self.async_client.exists(self._key(key))
+        ) and await self._is_valid_async(key, max_age, created_after)
 
     def get(
         self,
@@ -97,13 +139,13 @@ class RedisStorage(MemoStorage):
         """
         Get the value of a key from Redis.
         """
-        if max_age is not None or created_after is not None:
-            raise NotImplementedError(
-                "max_age and created_after are not yet supported for Redis storage"
-            )
         value = cast(Optional[str], self.client.get(self._key(key)))
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")
+        if not self._is_valid(key, max_age, created_after):
+            raise ExpiredMemoError(
+                f"Memo for key {key} is not valid in the requested time window"
+            )
         return value
 
     async def get_async(
@@ -115,23 +157,29 @@ class RedisStorage(MemoStorage):
         """
         Get the value of a key from Redis.
         """
-        if max_age is not None or created_after is not None:
-            raise NotImplementedError(
-                "max_age and created_after are not yet supported for Redis storage"
-            )
         value = cast(Optional[str], await self.async_client.get(self._key(key)))
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")
+        if not await self._is_valid_async(key, max_age, created_after):
+            raise ExpiredMemoError(
+                f"Memo for key {key} is not valid in the requested time window"
+            )
         return value
 
     def set(self, key: str, value: str) -> None:
         """
         Set the value of a key in Redis.
         """
-        self.client.set(self._key(key), value)
+        pipe = self.client.pipeline()  # pyright: ignore[reportUnknownMemberType]
+        pipe.set(self._key(key), value)
+        pipe.set(self._created_at_key(key), datetime.now(timezone.utc).isoformat())
+        pipe.execute()
 
     async def set_async(self, key: str, value: str) -> None:
         """
         Set the value of a key in Redis.
         """
-        await self.async_client.set(self._key(key), value)
+        pipe = self.async_client.pipeline()  # pyright: ignore[reportUnknownMemberType]
+        pipe.set(self._key(key), value)
+        pipe.set(self._created_at_key(key), datetime.now(timezone.utc).isoformat())
+        await pipe.execute()
