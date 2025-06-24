@@ -37,10 +37,6 @@ class TestRedisStorage:
     def test_exists_nonexistent(self, storage: RedisStorage):
         assert not storage.exists("nonexistent")
 
-    def test_exists_with_max_age(self, storage: RedisStorage, existing_key: str):
-        assert storage.exists(existing_key, max_age=timedelta(seconds=10))
-        assert not storage.exists(existing_key, max_age=timedelta(microseconds=1))
-
     def test_exists_with_created_after(self, storage: RedisStorage, existing_key: str):
         assert storage.exists(
             existing_key,
@@ -53,14 +49,6 @@ class TestRedisStorage:
 
     async def test_exists_async(self, storage: RedisStorage, existing_key: str):
         assert await storage.exists_async(existing_key)
-
-    async def test_exists_async_with_max_age(
-        self, storage: RedisStorage, existing_key: str
-    ):
-        assert await storage.exists_async(existing_key, max_age=timedelta(seconds=10))
-        assert not await storage.exists_async(
-            existing_key, max_age=timedelta(microseconds=1)
-        )
 
     async def test_exists_async_with_created_after(
         self, storage: RedisStorage, existing_key: str
@@ -79,11 +67,6 @@ class TestRedisStorage:
 
     def test_get(self, storage: RedisStorage, existing_key: str):
         assert storage.get(existing_key) == "test"
-
-    def test_get_with_max_age(self, storage: RedisStorage, existing_key: str):
-        assert storage.get(existing_key, max_age=timedelta(seconds=10))
-        with pytest.raises(ExpiredMemoError):
-            storage.get(existing_key, max_age=timedelta(microseconds=1))
 
     def test_get_with_created_after(self, storage: RedisStorage, existing_key: str):
         assert storage.get(
@@ -108,13 +91,6 @@ class TestRedisStorage:
 
     async def test_get_async(self, storage: RedisStorage, existing_key: str):
         assert await storage.get_async(existing_key) == "test"
-
-    async def test_get_async_with_max_age(
-        self, storage: RedisStorage, existing_key: str
-    ):
-        assert await storage.get_async(existing_key, max_age=timedelta(seconds=10))
-        with pytest.raises(ExpiredMemoError):
-            await storage.get_async(existing_key, max_age=timedelta(microseconds=1))
 
     async def test_get_async_with_created_after(
         self, storage: RedisStorage, existing_key: str

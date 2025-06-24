@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Protocol
 
 
@@ -24,7 +24,6 @@ class MemoStorage(Protocol):
     def exists(
         self,
         key: str,
-        max_age: timedelta | None = None,
         created_after: datetime | None = None,
     ) -> bool:
         """
@@ -32,7 +31,6 @@ class MemoStorage(Protocol):
 
         Args:
             key: The key to check
-            max_age: Maximum age of the record to be considered valid
             created_after: Only consider records created at or after this datetime
         """
         ...  # pragma: no cover
@@ -40,7 +38,6 @@ class MemoStorage(Protocol):
     async def exists_async(
         self,
         key: str,
-        max_age: timedelta | None = None,
         created_after: datetime | None = None,
     ) -> bool:
         """
@@ -48,7 +45,6 @@ class MemoStorage(Protocol):
 
         Args:
             key: The key to check
-            max_age: Maximum age of the record to be considered valid
             created_after: Only consider records created at or after this datetime
         """
         ...  # pragma: no cover
@@ -56,7 +52,6 @@ class MemoStorage(Protocol):
     def get(
         self,
         key: str,
-        max_age: timedelta | None = None,
         created_after: datetime | None = None,
     ) -> str:
         """
@@ -64,7 +59,6 @@ class MemoStorage(Protocol):
 
         Args:
             key: The key to retrieve
-            max_age: Maximum age of the record to be considered valid
             created_after: Only consider records created at or after this datetime
 
         Raises:
@@ -75,7 +69,6 @@ class MemoStorage(Protocol):
     async def get_async(
         self,
         key: str,
-        max_age: timedelta | None = None,
         created_after: datetime | None = None,
     ) -> str:
         """
@@ -83,7 +76,6 @@ class MemoStorage(Protocol):
 
         Args:
             key: The key to retrieve
-            max_age: Maximum age of the record to be considered valid
             created_after: Only consider records created at or after this datetime
 
         Raises:
