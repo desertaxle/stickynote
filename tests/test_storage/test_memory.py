@@ -19,11 +19,6 @@ class TestMemoryStorage:
     def test_exists(self, storage: MemoryStorage, existing_key: str):
         assert storage.exists(existing_key)
 
-    def test_exists_with_max_age(self, storage: MemoryStorage, existing_key: str):
-        assert storage.exists(existing_key, max_age=timedelta(seconds=10))
-        # a valid record isn't found because the existing one is more than 1 microsecond old
-        assert not storage.exists(existing_key, max_age=timedelta(microseconds=1))
-
     def test_exists_with_created_after(self, storage: MemoryStorage, existing_key: str):
         assert storage.exists(
             existing_key,
@@ -36,14 +31,6 @@ class TestMemoryStorage:
 
     async def test_exists_async(self, storage: MemoryStorage):
         assert not await storage.exists_async("test")
-
-    async def test_exists_async_with_max_age(
-        self, storage: MemoryStorage, existing_key: str
-    ):
-        assert await storage.exists_async(existing_key, max_age=timedelta(seconds=10))
-        assert not await storage.exists_async(
-            existing_key, max_age=timedelta(microseconds=1)
-        )
 
     async def test_exists_async_with_created_after(
         self, storage: MemoryStorage, existing_key: str
@@ -66,11 +53,6 @@ class TestMemoryStorage:
     def test_get(self, storage: MemoryStorage, existing_key: str):
         assert storage.get(existing_key) == "test"
 
-    def test_get_with_max_age(self, storage: MemoryStorage, existing_key: str):
-        assert storage.get(existing_key, max_age=timedelta(seconds=10)) == "test"
-        with pytest.raises(ExpiredMemoError):
-            storage.get(existing_key, max_age=timedelta(microseconds=1))
-
     def test_get_with_created_after(self, storage: MemoryStorage, existing_key: str):
         assert (
             storage.get(
@@ -87,16 +69,6 @@ class TestMemoryStorage:
 
     async def test_get_async(self, storage: MemoryStorage, existing_key: str):
         assert await storage.get_async(existing_key) == "test"
-
-    async def test_get_async_with_max_age(
-        self, storage: MemoryStorage, existing_key: str
-    ):
-        assert (
-            await storage.get_async(existing_key, max_age=timedelta(seconds=10))
-            == "test"
-        )
-        with pytest.raises(ExpiredMemoError):
-            await storage.get_async(existing_key, max_age=timedelta(microseconds=1))
 
     async def test_get_async_with_created_after(
         self, storage: MemoryStorage, existing_key: str
