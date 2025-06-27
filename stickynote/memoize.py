@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import partial, update_wrapper
 from typing import (
     TYPE_CHECKING,
@@ -52,12 +52,14 @@ class MemoizedCallable(Generic[P, R]):
         storage: MemoStorage,
         serializer: Serializer | Iterable[Serializer],
         key_strategy: MemoKeyStrategy,
+        max_age: timedelta | None = None,
     ):
         self.fn = fn
         update_wrapper(self, fn)
         self.storage = storage
         self.serializer = serializer
         self.key_strategy = key_strategy
+        self.max_age = max_age
         self.on_cache_hit_callbacks: list[OnCacheHitCallback[P, R]] = []
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
@@ -65,7 +67,10 @@ class MemoizedCallable(Generic[P, R]):
             return self._call_async(*args, **kwargs)  # pyright: ignore[reportReturnType] need to return a coroutine if the wrapped function is async
         key = self.key_strategy.compute(self.fn, args, kwargs)
         with MemoBlock(
-            key=key, storage=self.storage, serializer=self.serializer
+            key=key,
+            storage=self.storage,
+            serializer=self.serializer,
+            max_age=self.max_age,
         ) as memo:
             if memo.hit:
                 for callback in self.on_cache_hit_callbacks:
@@ -91,7 +96,10 @@ class MemoizedCallable(Generic[P, R]):
     async def _call_async(self, *args: P.args, **kwargs: P.kwargs) -> R:
         key = self.key_strategy.compute(self.fn, args, kwargs)
         async with AsyncMemoBlock(
-            key=key, storage=self.storage, serializer=self.serializer
+            key=key,
+            storage=self.storage,
+            serializer=self.serializer,
+            max_age=self.max_age,
         ) as memo:
             if memo.hit:
                 for callback in self.on_cache_hit_callbacks:
@@ -136,6 +144,7 @@ def memoize(
     storage: MemoStorage = DEFAULT_STORAGE,
     key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
     serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
+    max_age: timedelta | None = None,
 ) -> Callable[[Callable[P, R]], MemoizedCallable[P, R]]: ...
 
 
@@ -145,6 +154,7 @@ def memoize(
     storage: MemoStorage = DEFAULT_STORAGE,
     key_strategy: MemoKeyStrategy = DEFAULT_STRATEGY,
     serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
+    max_age: timedelta | None = None,
 ) -> (
     MemoizedCallable[P, R]
     | Callable[
@@ -154,6 +164,12 @@ def memoize(
 ):
     """
     Decorator to memoize the results of a function.
+
+    Args:
+        storage: A `Storage` object to use to store memoized results.
+        key_strategy: The key strategy to use for memoization.
+        serializer: The serializer to use for memoization.
+        max_age: The maximum age of the cached result.
     """
 
     if __fn is None:
@@ -167,10 +183,17 @@ def memoize(
                 storage=storage,
                 key_strategy=key_strategy,
                 serializer=serializer,
+                max_age=max_age,
             ),
         )
     else:
-        return MemoizedCallable(__fn, storage, serializer, key_strategy)
+        return MemoizedCallable(
+            __fn,
+            storage=storage,
+            serializer=serializer,
+            key_strategy=key_strategy,
+            max_age=max_age,
+        )
 
 
 _UNSET = object()
@@ -186,9 +209,12 @@ class BaseMemoBlock:
         key: str,
         storage: MemoStorage = DEFAULT_STORAGE,
         serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
+        max_age: timedelta | None = None,
     ):
         self.key = key
         self.storage = storage
+        self.max_age = max_age
+
         self.hit: bool = False
         self.value: Any = None
         if isinstance(serializer, Serializer):
@@ -227,7 +253,14 @@ class MemoBlock(BaseMemoBlock):
         if self.storage.exists(self.key):
             for serializer in self.serializer:
                 try:
-                    self.value: Any = serializer.deserialize(self.storage.get(self.key))
+                    created_after = (
+                        datetime.now(timezone.utc) - self.max_age
+                        if self.max_age
+                        else None
+                    )
+                    self.value: Any = serializer.deserialize(
+                        self.storage.get(key=self.key, created_after=created_after)
+                    )
                     self.hit = True
                     break
                 except Exception as e:
@@ -283,8 +316,15 @@ class AsyncMemoBlock(BaseMemoBlock):
         if await self.storage.exists_async(self.key):
             for serializer in self.serializer:
                 try:
+                    created_after = (
+                        datetime.now(timezone.utc) - self.max_age
+                        if self.max_age
+                        else None
+                    )
                     self.value: Any = serializer.deserialize(
-                        await self.storage.get_async(self.key)
+                        await self.storage.get_async(
+                            key=self.key, created_after=created_after
+                        )
                     )
                     self.hit = True
                     break
