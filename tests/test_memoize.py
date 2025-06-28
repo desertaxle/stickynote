@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import importlib.util
 import pickle
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
+from time import sleep
 from typing import Any, Callable
 from unittest.mock import MagicMock
 
@@ -471,6 +473,35 @@ class TestMemoize:
             )
             assert "test exception" in caplog.text
 
+        def test_with_max_age(self):
+            storage = MemoryStorage()
+            strategy = Inputs()
+            call_count = 0
+
+            @memoize(
+                storage=storage,
+                key_strategy=strategy,
+                max_age=timedelta(milliseconds=100),
+            )
+            def add(a: int, b: int) -> int:
+                nonlocal call_count
+                call_count += 1
+                return a + b
+
+            result = add(1, 2)
+            assert result == 3
+            assert call_count == 1
+
+            result = add(1, 2)
+            assert result == 3
+            assert call_count == 1
+
+            sleep(0.1)
+
+            result = add(1, 2)
+            assert result == 3
+            assert call_count == 2
+
     class TestAsync:
         async def test_memoize_async_function(self):
             storage = MemoryStorage()
@@ -562,6 +593,35 @@ class TestMemoize:
                 "An error occurred while calling on_cache_hit callback" in caplog.text
             )
             assert "test exception" in caplog.text
+
+        async def test_with_max_age(self):
+            storage = MemoryStorage()
+            strategy = Inputs()
+            call_count = 0
+
+            @memoize(
+                storage=storage,
+                key_strategy=strategy,
+                max_age=timedelta(milliseconds=100),
+            )
+            async def add(a: int, b: int) -> int:
+                nonlocal call_count
+                call_count += 1
+                return a + b
+
+            result = await add(1, 2)
+            assert result == 3
+            assert call_count == 1
+
+            result = await add(1, 2)
+            assert result == 3
+            assert call_count == 1
+
+            await asyncio.sleep(0.1)
+
+            result = await add(1, 2)
+            assert result == 3
+            assert call_count == 2
 
 
 class TestMemoBlock:

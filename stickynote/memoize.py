@@ -23,6 +23,7 @@ from typing_extensions import ParamSpec, Self
 from stickynote.key_strategies import DEFAULT_STRATEGY, MemoKeyStrategy
 from stickynote.serializers import DEFAULT_SERIALIZER_CHAIN, Serializer
 from stickynote.storage import DEFAULT_STORAGE, MemoStorage
+from stickynote.storage.base import ExpiredMemoError
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -263,6 +264,8 @@ class MemoBlock(BaseMemoBlock):
                     )
                     self.hit = True
                     break
+                except ExpiredMemoError:
+                    break
                 except Exception as e:
                     serializer_exceptions.append(e)
 
@@ -327,6 +330,8 @@ class AsyncMemoBlock(BaseMemoBlock):
                         )
                     )
                     self.hit = True
+                    break
+                except ExpiredMemoError:
                     break
                 except Exception as e:
                     serializer_exceptions.append(e)
