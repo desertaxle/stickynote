@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import importlib
+import importlib.util
 import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -11,15 +12,10 @@ import pytest
 from stickynote.storage import MissingMemoError, RedisStorage
 from stickynote.storage.base import ExpiredMemoError
 
-try:
-    import redis  # type: ignore
-
-    redis_available = True
-except ImportError:
-    redis_available = False
+REDIS_AVAILABLE = importlib.util.find_spec("redis") is not None
 
 
-@pytest.mark.skipif(not redis_available, reason="redis-py not available")
+@pytest.mark.skipif(not REDIS_AVAILABLE, reason="redis-py not available")
 class TestRedisStorage:
     @pytest.fixture
     def storage(self) -> RedisStorage:

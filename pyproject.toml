@@ -32,6 +32,7 @@ dev = [
 [tool.ruff.lint]
 select = [
     "I",  # isort
+    "F401", # unused-import
 ]
 
 [tool.ruff.lint.isort]
