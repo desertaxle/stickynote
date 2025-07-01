@@ -413,7 +413,7 @@ class TestMemoize:
             spy.assert_not_called()
             memoized_add(1, 2)
             spy.assert_called_once_with(
-                "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+                "test_key", 3, (1, 2), {}, datetime.now(timezone.utc)
             )
 
         @freeze_time("2025-01-01")
@@ -438,10 +438,10 @@ class TestMemoize:
 
             memoized_add(1, 2)
             spy1.assert_called_once_with(
-                "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+                "test_key", 3, (1, 2), {}, datetime.now(timezone.utc)
             )
             spy2.assert_called_once_with(
-                "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+                "test_key", 3, (1, 2), {}, datetime.now(timezone.utc)
             )
 
         @freeze_time("2025-01-01")
@@ -465,13 +465,29 @@ class TestMemoize:
 
             memoized_add(1, 2)
             spy.assert_called_once_with(
-                "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+                "test_key", 3, (1, 2), {}, datetime.now(timezone.utc)
             )
 
             assert (
                 "An error occurred while calling on_cache_hit callback" in caplog.text
             )
             assert "test exception" in caplog.text
+
+        def test_before_cache_lookup_callback(self):
+            storage = MemoryStorage()
+            spy = MagicMock()
+
+            def add(a: int, b: int) -> int:
+                return a + b
+
+            memoized_add = memoize(storage=storage, key_strategy=StaticKeyStrategy())(
+                add
+            )
+
+            memoized_add.before_cache_lookup(spy)
+
+            memoized_add(1, 2)
+            spy.assert_called_once_with("test_key", (1, 2), {})
 
         def test_with_max_age(self):
             storage = MemoryStorage()
@@ -534,7 +550,7 @@ class TestMemoize:
             spy.assert_not_called()
             await memoized_add(1, 2)
             spy.assert_called_once_with(
-                "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+                "test_key", 3, (1, 2), {}, datetime.now(timezone.utc)
             )
 
         @freeze_time("2025-01-01")
@@ -559,10 +575,10 @@ class TestMemoize:
 
             await memoized_add(1, 2)
             spy1.assert_called_once_with(
-                "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+                "test_key", 3, (1, 2), {}, datetime.now(timezone.utc)
             )
             spy2.assert_called_once_with(
-                "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+                "test_key", 3, (1, 2), {}, datetime.now(timezone.utc)
             )
 
         @freeze_time("2025-01-01")
@@ -586,13 +602,29 @@ class TestMemoize:
 
             await memoized_add(1, 2)
             spy.assert_called_once_with(
-                "test_key", 3, add, (1, 2), {}, datetime.now(timezone.utc)
+                "test_key", 3, (1, 2), {}, datetime.now(timezone.utc)
             )
 
             assert (
                 "An error occurred while calling on_cache_hit callback" in caplog.text
             )
             assert "test exception" in caplog.text
+
+        async def test_before_cache_lookup_callback(self):
+            storage = MemoryStorage()
+            spy = MagicMock()
+
+            async def add(a: int, b: int) -> int:
+                return a + b
+
+            memoized_add = memoize(storage=storage, key_strategy=StaticKeyStrategy())(
+                add
+            )
+
+            memoized_add.before_cache_lookup(spy)
+
+            await memoized_add(1, 2)
+            spy.assert_called_once_with("test_key", (1, 2), {})
 
         async def test_with_max_age(self):
             storage = MemoryStorage()

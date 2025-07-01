@@ -27,17 +27,22 @@ from stickynote.storage.base import ExpiredMemoError
 
 P = ParamSpec("P")
 R = TypeVar("R")
-R_co = TypeVar("R_co", covariant=True)
+R_co = TypeVar("R_co", contravariant=True)
 
 logger: logging.Logger = logging.getLogger("stickynote.memoize")
 
 
-class OnCacheHitCallback(Protocol, Generic[P, R_co]):
+class BeforeCacheLookupCallback(Protocol):
+    def __call__(
+        self, key: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> None: ...
+
+
+class OnCacheHitCallback(Protocol, Generic[R_co]):
     def __call__(
         self,
         key: str,
-        value: R,
-        fn: Callable[P, R],
+        value: R_co,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
         timestamp: datetime,
@@ -61,12 +66,15 @@ class MemoizedCallable(Generic[P, R]):
         self.serializer = serializer
         self.key_strategy = key_strategy
         self.max_age = max_age
-        self.on_cache_hit_callbacks: list[OnCacheHitCallback[P, R]] = []
+        self.on_cache_hit_callbacks: list[OnCacheHitCallback[R]] = []
+        self.before_cache_lookup_callbacks: list[BeforeCacheLookupCallback] = []
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         if inspect.iscoroutinefunction(self.fn):
             return self._call_async(*args, **kwargs)  # pyright: ignore[reportReturnType] need to return a coroutine if the wrapped function is async
         key = self.key_strategy.compute(self.fn, args, kwargs)
+        for callback in self.before_cache_lookup_callbacks:
+            callback(key, args, kwargs)
         with MemoBlock(
             key=key,
             storage=self.storage,
@@ -79,7 +87,6 @@ class MemoizedCallable(Generic[P, R]):
                         callback(
                             key,
                             memo.value,
-                            self.fn,
                             args,
                             kwargs,
                             datetime.now(timezone.utc),
@@ -96,6 +103,8 @@ class MemoizedCallable(Generic[P, R]):
 
     async def _call_async(self, *args: P.args, **kwargs: P.kwargs) -> R:
         key = self.key_strategy.compute(self.fn, args, kwargs)
+        for callback in self.before_cache_lookup_callbacks:
+            callback(key, args, kwargs)
         async with AsyncMemoBlock(
             key=key,
             storage=self.storage,
@@ -108,7 +117,6 @@ class MemoizedCallable(Generic[P, R]):
                         callback(
                             key,
                             memo.value,
-                            self.fn,
                             args,
                             kwargs,
                             datetime.now(timezone.utc),
@@ -125,9 +133,12 @@ class MemoizedCallable(Generic[P, R]):
             memo.stage(result)
             return result
 
+    def before_cache_lookup(self, fn: BeforeCacheLookupCallback) -> None:
+        self.before_cache_lookup_callbacks.append(fn)
+
     def on_cache_hit(
         self,
-        fn: OnCacheHitCallback[P, R],
+        fn: OnCacheHitCallback[R],
     ) -> None:
         self.on_cache_hit_callbacks.append(fn)
 
