@@ -19,8 +19,7 @@ REDIS_AVAILABLE = importlib.util.find_spec("redis") is not None
 class TestRedisStorage:
     @pytest.fixture
     def storage(self) -> RedisStorage:
-        storage = RedisStorage(db=15)  # Use a separate test database
-        return storage
+        return RedisStorage(db=15)  # Use a separate test database
 
     @pytest.fixture
     def existing_key(self, storage: RedisStorage):

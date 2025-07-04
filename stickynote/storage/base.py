@@ -12,7 +12,8 @@ class MissingMemoError(Exception):
 
 class ExpiredMemoError(MissingMemoError):
     """
-    Exception raised when a memoized result is found but falls outside the requested time window.
+    Exception raised when a memoized result is found but falls outside the requested
+    time window.
     """
 
 

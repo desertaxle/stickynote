@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from functools import partial, update_wrapper
 from typing import (
@@ -9,7 +10,6 @@ from typing import (
     Any,
     Callable,
     Generic,
-    Iterable,
     Literal,
     Protocol,
     TypeVar,
@@ -198,14 +198,13 @@ def memoize(
                 max_age=max_age,
             ),
         )
-    else:
-        return MemoizedCallable(
-            __fn,
-            storage=storage,
-            serializer=serializer,
-            key_strategy=key_strategy,
-            max_age=max_age,
-        )
+    return MemoizedCallable(
+        __fn,
+        storage=storage,
+        serializer=serializer,
+        key_strategy=key_strategy,
+        max_age=max_age,
+    )
 
 
 _UNSET = object()

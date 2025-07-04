@@ -6,13 +6,15 @@ from pathlib import Path
 
 from .base import ExpiredMemoError, MemoStorage, MissingMemoError
 
+_HOME = Path.home()
+
 
 class FileStorage(MemoStorage):
     """
     Disk-based storage for storing and retrieving memoized results.
     """
 
-    def __init__(self, path: Path | str = Path.home() / ".stickynote"):
+    def __init__(self, path: Path | str = _HOME / ".stickynote"):
         self.path: Path = Path(path)
 
     def _ensure_directory_exists(self) -> None:

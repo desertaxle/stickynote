@@ -51,7 +51,7 @@ class Inputs(MemoKeyStrategy):
 
 
 class SourceCode(MemoKeyStrategy):
-    def compute(self, func: Callable[..., Any], args: Any, kwargs: Any) -> str:
+    def compute(self, func: Callable[..., Any], _args: Any, _kwargs: Any) -> str:
         sha256 = hashlib.sha256()
         sha256.update(inspect.getsource(func).encode("utf-8"))
         return sha256.hexdigest()
@@ -78,8 +78,7 @@ class CompoundMemoKeyStrategy(MemoKeyStrategy):
     def __add__(self, other: MemoKeyStrategy) -> "CompoundMemoKeyStrategy":
         if isinstance(other, CompoundMemoKeyStrategy):
             return CompoundMemoKeyStrategy(*self.strategies, *other.strategies)
-        else:
-            return CompoundMemoKeyStrategy(*self.strategies, other)
+        return CompoundMemoKeyStrategy(*self.strategies, other)
 
 
 DEFAULT_STRATEGY = SourceCode() + Inputs()

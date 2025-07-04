@@ -33,7 +33,7 @@ HAS_CLOUDPICKLE = importlib.util.find_spec("cloudpickle") is not None
 
 
 class StaticKeyStrategy(MemoKeyStrategy):
-    def compute(self, func: Any, args: Any, kwargs: Any) -> str:
+    def compute(self, func: Any, args: Any, kwargs: Any) -> str:  # noqa: ARG002
         return "test_key"
 
 
@@ -116,10 +116,10 @@ class TestMemoize:
             call_count = 0
 
             @memoize(storage=storage)
-            def return_none(x: int) -> None:
+            def return_none(_x: int) -> None:
                 nonlocal call_count
                 call_count += 1
-                return None
+                return
 
             # First call
             result1 = return_none(1)
@@ -248,7 +248,7 @@ class TestMemoize:
 
             # Create a custom strategy that only uses the function name
             class FunctionNameStrategy(MemoKeyStrategy):
-                def compute(self, func: Any, args: Any, kwargs: Any) -> str:
+                def compute(self, func: Any, args: Any, kwargs: Any) -> str:  # noqa: ARG002
                     return func.__name__
 
             call_count = 0
@@ -282,7 +282,9 @@ class TestMemoize:
             assert call_count == 2  # Call count should increase
 
         def test_memoize_with_complex_objects(self):
-            """Test that memoize works with complex objects using the Inputs strategy."""
+            """
+            Test that memoize works with complex objects using the Inputs strategy.
+            """
             storage = MemoryStorage()
             strategy = Inputs()
             call_count = 0
@@ -780,11 +782,11 @@ class TestMemoBlock:
             return inner
 
         closure_func = outer(5)
-        with pytest.raises(ExceptionGroup) as e:
-            with MemoBlock(
-                key="test_key", storage=storage, serializer=serializer
-            ) as memo:
-                memo.stage(closure_func)
+        with (
+            pytest.raises(ExceptionGroup) as e,
+            MemoBlock(key="test_key", storage=storage, serializer=serializer) as memo,
+        ):
+            memo.stage(closure_func)
 
         assert len(e.value.exceptions) == 2
 
@@ -799,11 +801,11 @@ class TestMemoBlock:
         with MemoBlock(key="test_key", storage=storage, serializer=serializer) as memo:
             memo.stage(class_factory(1))
 
-        with pytest.raises(ExceptionGroup) as e:
-            with MemoBlock(
-                key="test_key", storage=storage, serializer=deserializer
-            ) as memo:
-                pass
+        with (
+            pytest.raises(ExceptionGroup) as e,
+            MemoBlock(key="test_key", storage=storage, serializer=deserializer) as memo,
+        ):
+            pass
 
         assert len(e.value.exceptions) == 1
 

@@ -6,11 +6,11 @@ from .redis import RedisStorage
 DEFAULT_STORAGE: MemoStorage = MemoryStorage()
 
 __all__ = [
-    "MemoStorage",
-    "MissingMemoError",
-    "ExpiredMemoError",
     "DEFAULT_STORAGE",
-    "RedisStorage",
+    "ExpiredMemoError",
     "FileStorage",
+    "MemoStorage",
     "MemoryStorage",
+    "MissingMemoError",
+    "RedisStorage",
 ]

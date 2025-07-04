@@ -30,10 +30,7 @@ class MemoryStorage(MemoStorage):
         created_at = self.metadata[key]["created_at"]
 
         # Check if created before cutoff
-        if created_after and created_at < created_after:
-            return False
-
-        return True
+        return not (created_after and created_at < created_after)
 
     def exists(
         self,

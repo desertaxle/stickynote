@@ -37,7 +37,7 @@ class RedisStorage(MemoStorage):
             )
 
         self.prefix = prefix
-        self.client: "RedisClient" = redis.Redis(
+        self.client: RedisClient = redis.Redis(
             host=host,
             port=port,
             db=db,
@@ -45,7 +45,7 @@ class RedisStorage(MemoStorage):
             decode_responses=True,
             **kwargs,
         )
-        self.async_client: "AsyncRedisClient" = redis.asyncio.Redis(
+        self.async_client: AsyncRedisClient = redis.asyncio.Redis(
             host=host,
             port=port,
             db=db,
@@ -80,10 +80,7 @@ class RedisStorage(MemoStorage):
         if created_at_timestamp is None:
             return False
         created_at = datetime.fromisoformat(created_at_timestamp)
-        if created_after is not None:
-            if created_at < created_after:
-                return False
-        return True
+        return not (created_after is not None and created_at < created_after)
 
     async def _is_valid_async(
         self,
@@ -103,10 +100,7 @@ class RedisStorage(MemoStorage):
         if created_at_timestamp is None:
             return False
         created_at = datetime.fromisoformat(created_at_timestamp)
-        if created_after is not None:
-            if created_at < created_after:
-                return False
-        return True
+        return not (created_after is not None and created_at < created_after)
 
     def exists(
         self,

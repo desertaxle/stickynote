@@ -194,7 +194,7 @@ def test_inputs_strategy_with_complex_objects():
     strategy = Inputs()
 
     # Define a test function
-    def test_func(a: Any, b: Any, c: Any = None) -> Any:
+    def test_func(a: Any, b: Any, _c: Any = None) -> Any:
         return a + b
 
     # Test with a list
