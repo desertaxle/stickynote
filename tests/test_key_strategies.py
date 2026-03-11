@@ -50,14 +50,14 @@ def test_source_code_strategy():
     strategy = SourceCode()
 
     # Define a test function
-    def test_func(a: Any, b: Any) -> Any:  # pyright: ignore[reportRedeclaration] this is intentional for the test
+    def test_func(a: Any, b: Any) -> Any:
         return a + b
 
     # Get the key for the function
     key1 = strategy.compute(test_func, (), {})
 
     # Define the same function again with a different name
-    def test_func(a: Any, b: Any) -> Any:  # pyright: ignore[reportRedeclaration] this is intentional for the test
+    def test_func(a: Any, b: Any) -> Any:
         return a + b
 
     # Get the key for the second function

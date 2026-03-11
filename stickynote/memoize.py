@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta, timezone
 from functools import partial, update_wrapper
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Generic,
     Literal,
     Protocol,
@@ -71,7 +70,7 @@ class MemoizedCallable(Generic[P, R]):
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         if inspect.iscoroutinefunction(self.fn):
-            return self._call_async(*args, **kwargs)  # pyright: ignore[reportReturnType] need to return a coroutine if the wrapped function is async
+            return self._call_async(*args, **kwargs)  # ty: ignore[invalid-return-type]
         key = self.key_strategy.compute(self.fn, args, kwargs)
         for callback in self.before_cache_lookup_callbacks:
             callback(key, args, kwargs)
@@ -270,7 +269,10 @@ class MemoBlock(BaseMemoBlock):
                         else None
                     )
                     self.value: Any = serializer.deserialize(
-                        self.storage.get(key=self.key, created_after=created_after)
+                        self.storage.get(
+                            key=self.key,
+                            created_after=created_after,  # ty: ignore[invalid-argument-type]
+                        )
                     )
                     self.hit = True
                     break
@@ -336,7 +338,8 @@ class AsyncMemoBlock(BaseMemoBlock):
                     )
                     self.value: Any = serializer.deserialize(
                         await self.storage.get_async(
-                            key=self.key, created_after=created_after
+                            key=self.key,
+                            created_after=created_after,  # ty: ignore[invalid-argument-type]
                         )
                     )
                     self.hit = True

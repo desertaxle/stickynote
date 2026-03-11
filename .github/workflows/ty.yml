@@ -1,9 +1,9 @@
-name: pyright
+name: ty
 
 on: [push]
 
 jobs:
-  verifytypes:
+  typecheck:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -15,5 +15,5 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         enable-cache: true
-    - name: Check type completeness
-      run: uv run --all-extras pyright --ignoreexternal --verifytypes stickynote
+    - name: Type check
+      run: uv run --all-extras ty check

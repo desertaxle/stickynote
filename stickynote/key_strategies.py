@@ -4,7 +4,8 @@ import inspect
 import json
 import logging
 import pickle
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 logger: logging.Logger = logging.getLogger("stickynote.key_strategies")
 
@@ -51,7 +52,9 @@ class Inputs(MemoKeyStrategy):
 
 
 class SourceCode(MemoKeyStrategy):
-    def compute(self, func: Callable[..., Any], _args: Any, _kwargs: Any) -> str:
+    def compute(  # ty: ignore[invalid-method-override]
+        self, func: Callable[..., Any], _args: Any, _kwargs: Any
+    ) -> str:
         sha256 = hashlib.sha256()
         sha256.update(inspect.getsource(func).encode("utf-8"))
         return sha256.hexdigest()
