@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from .base import ExpiredMemoError, MemoStorage, MissingMemoError
 
@@ -9,7 +9,7 @@ try:
     import redis
     import redis.asyncio
 except ImportError:
-    redis = None
+    redis = None  # ty: ignore[invalid-assignment]
 
 if TYPE_CHECKING:
     from redis import Redis as RedisClient  # pragma: no cover
@@ -75,7 +75,7 @@ class RedisStorage(MemoStorage):
             created_after: Only consider records created at or after this datetime
         """
         created_at_timestamp = cast(
-            Union[str, None], self.client.get(self._created_at_key(key))
+            str | None, self.client.get(self._created_at_key(key))
         )
         if created_at_timestamp is None:
             return False
@@ -95,7 +95,7 @@ class RedisStorage(MemoStorage):
             created_after: Only consider records created at or after this datetime
         """
         created_at_timestamp = cast(
-            Union[str, None], await self.async_client.get(self._created_at_key(key))
+            str | None, await self.async_client.get(self._created_at_key(key))
         )
         if created_at_timestamp is None:
             return False
@@ -134,7 +134,7 @@ class RedisStorage(MemoStorage):
         """
         Get the value of a key from Redis.
         """
-        value = cast(Optional[str], self.client.get(self._key(key)))
+        value = cast(str | None, self.client.get(self._key(key)))
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")
         if not self._is_valid(key, created_after):
@@ -151,7 +151,7 @@ class RedisStorage(MemoStorage):
         """
         Get the value of a key from Redis.
         """
-        value = cast(Optional[str], await self.async_client.get(self._key(key)))
+        value = cast(str | None, await self.async_client.get(self._key(key)))
         if value is None:
             raise MissingMemoError(f"Memo for key {key} not found in Redis")
         if not await self._is_valid_async(key, created_after):
@@ -168,7 +168,7 @@ class RedisStorage(MemoStorage):
             key: The key to set the value for
             value: The value to set
         """
-        pipe = self.client.pipeline()  # pyright: ignore[reportUnknownMemberType]
+        pipe = self.client.pipeline()
         pipe.set(self._key(key), value)
         pipe.set(self._created_at_key(key), datetime.now(timezone.utc).isoformat())
         pipe.execute()
@@ -181,7 +181,7 @@ class RedisStorage(MemoStorage):
             key: The key to set the value for
             value: The value to set
         """
-        pipe = self.async_client.pipeline()  # pyright: ignore[reportUnknownMemberType]
+        pipe = self.async_client.pipeline()
         pipe.set(self._key(key), value)
         pipe.set(self._created_at_key(key), datetime.now(timezone.utc).isoformat())
         await pipe.execute()

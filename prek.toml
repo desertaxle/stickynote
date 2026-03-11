@@ -1,0 +1,17 @@
+[[hook]]
+name = "ruff-check"
+command = "uv run ruff check --fix --exit-non-zero-on-fix --show-fixes"
+glob = "*.py"
+
+[[hook]]
+name = "ruff-format"
+command = "uv run ruff format"
+glob = "*.py"
+
+[[hook]]
+name = "ty"
+command = "uv run ty check"
+
+[[hook]]
+name = "pyright-verifytypes"
+command = "uv run --all-extras pyright --ignoreexternal --verifytypes stickynote"

@@ -3,7 +3,8 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -56,7 +57,7 @@ def test_pickle_serializer():
     try:
         base64.b64decode(serialized)
     except Exception:
-        pytest.fail("Serialized data is not valid base64")
+        pytest.fail("Serialized data is not valid base64")  # fmt: skip  # ty: ignore[invalid-argument-type]
 
     deserialized = serializer.deserialize(serialized)
     assert deserialized == test_data
@@ -113,13 +114,13 @@ def test_cloudpickle_serializer():
     try:
         base64.b64decode(serialized)
     except Exception:
-        pytest.fail("Serialized data is not valid base64")
+        pytest.fail("Serialized data is not valid base64")  # fmt: skip  # ty: ignore[invalid-argument-type]
 
     deserialized = serializer.deserialize(serialized)
     assert deserialized["string"] == test_data["string"]
     assert deserialized["number"] == test_data["number"]
     assert deserialized["object"] == test_data["object"]
-    assert deserialized["lambda"](5) == test_data["lambda"](5)  # pyright: ignore[reportCallIssue]
+    assert deserialized["lambda"](5) == test_data["lambda"](5)
 
 
 @pytest.mark.skipif(HAS_CLOUDPICKLE, reason="cloudpickle is installed")

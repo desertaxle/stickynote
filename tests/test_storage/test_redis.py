@@ -129,7 +129,7 @@ class TestRedisStorage:
             storage.set("test", "value")
             assert storage.client.exists("custom:test")
         except Exception as e:
-            pytest.skip(f"Redis not available: {e}")
+            pytest.skip(f"Redis not available: {e}")  # fmt: skip  # ty: ignore[invalid-argument-type, too-many-positional-arguments]
 
 
 def test_redis_import_error():
@@ -147,7 +147,7 @@ def test_redis_import_error():
             raise ImportError("No module named 'redis'")
         return original_import(name, *args)
 
-    builtins.__import__ = mock_import
+    builtins.__import__ = mock_import  # ty: ignore[invalid-assignment]
 
     try:
         # Re-import the module to trigger the ImportError

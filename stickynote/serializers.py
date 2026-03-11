@@ -30,17 +30,17 @@ class PickleSerializer(Serializer):
 class CloudPickleSerializer(Serializer):
     def serialize(self, obj: Any) -> str:
         try:
-            import cloudpickle  # pyright: ignore[reportMissingTypeStubs]
+            import cloudpickle
         except ImportError:
             raise ImportError(
                 "Unable to import cloudpickle. "
                 "Please install 'stickynote[cloudpickle]' to use this serializer."
             ) from None
-        return base64.b64encode(cloudpickle.dumps(obj)).decode("utf-8")  # pyright: ignore[reportUnknownMemberType]
+        return base64.b64encode(cloudpickle.dumps(obj)).decode("utf-8")
 
     def deserialize(self, data: str) -> Any:
         try:
-            import cloudpickle  # pyright: ignore[reportMissingTypeStubs]
+            import cloudpickle
         except ImportError:
             raise ImportError(
                 "Unable to import cloudpickle. "
