@@ -1,17 +1,30 @@
-[[hook]]
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "ruff-check"
 name = "ruff-check"
-command = "uv run ruff check --fix --exit-non-zero-on-fix --show-fixes"
-glob = "*.py"
+entry = "uv run ruff check --fix --exit-non-zero-on-fix --show-fixes"
+language = "system"
+types = ["python"]
 
-[[hook]]
+[[repos.hooks]]
+id = "ruff-format"
 name = "ruff-format"
-command = "uv run ruff format"
-glob = "*.py"
+entry = "uv run ruff format"
+language = "system"
+types = ["python"]
 
-[[hook]]
+[[repos.hooks]]
+id = "ty"
 name = "ty"
-command = "uv run ty check"
+entry = "uv run ty check"
+language = "system"
+pass_filenames = false
 
-[[hook]]
+[[repos.hooks]]
+id = "pyright-verifytypes"
 name = "pyright-verifytypes"
-command = "uv run --all-extras pyright --ignoreexternal --verifytypes stickynote"
+entry = "uv run --all-extras pyright --ignoreexternal --verifytypes stickynote"
+language = "system"
+pass_filenames = false
