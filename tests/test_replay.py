@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from stickynote.replay import replay
 from stickynote.storage import MemoryStorage
 
@@ -268,3 +270,37 @@ class TestReplayAsync:
 
         assert call_counts.get("async_fetch_data", 0) == 0
         assert call_counts["async_process"] == 1
+
+
+class TestReplayEdgeCases:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_globals_restored_after_normal_exit(self):
+        storage = MemoryStorage()
+
+        original_fetch = fetch_data
+        with replay("test-pipeline", storage=storage):
+            fetch_data("users")
+
+        # After exiting, the original function should be restored
+        assert fetch_data is original_fetch
+
+    def test_globals_restored_after_exception(self):
+        storage = MemoryStorage()
+
+        original_fetch = fetch_data
+        with (
+            pytest.raises(RuntimeError, match="boom"),
+            replay("test-pipeline", storage=storage),
+        ):
+            fetch_data("users")
+            raise RuntimeError("boom")
+
+        # Globals should still be restored
+        assert fetch_data is original_fetch
+
+    def test_import_from_package(self):
+        from stickynote import replay as replay_import
+
+        assert replay_import is replay
