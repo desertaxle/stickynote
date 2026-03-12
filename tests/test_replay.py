@@ -1,3 +1,5 @@
+import json
+
 from stickynote.replay import replay
 from stickynote.storage import MemoryStorage
 
@@ -12,6 +14,11 @@ def fetch_data(source: str) -> dict:
 def process(data: dict) -> dict:
     call_counts["process"] = call_counts.get("process", 0) + 1
     return {"processed": True, **data}
+
+
+def save(data: dict) -> str:
+    call_counts["save"] = call_counts.get("save", 0) + 1
+    return json.dumps(data)
 
 
 class TestReplaySync:
@@ -73,3 +80,45 @@ class TestReplaySync:
         assert call_counts.get("fetch_data", 0) == 0
         assert data1 == {"source": "users", "data": [1, 2, 3]}
         assert data2 == {"source": "orders", "data": [1, 2, 3]}
+
+
+class TestReplayFiltering:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_builtins_are_not_patched(self):
+        storage = MemoryStorage()
+
+        with replay("test-pipeline", storage=storage):
+            result = len([1, 2, 3])
+
+        assert result == 3
+        # len should not be in the storage (no cache entries for builtins)
+        assert len(storage.cache) == 0
+
+    def test_stdlib_is_not_patched(self):
+        storage = MemoryStorage()
+
+        with replay("test-pipeline", storage=storage):
+            result = json.dumps({"a": 1})
+
+        assert result == '{"a": 1}'
+        # json.dumps should not create cache entries
+        assert len(storage.cache) == 0
+
+    def test_exclude_prevents_caching(self):
+        storage = MemoryStorage()
+
+        with replay("test-pipeline", storage=storage, exclude=[save]):
+            result = save({"key": "value"})
+
+        assert result == '{"key": "value"}'
+        assert call_counts["save"] == 1
+
+        call_counts.clear()
+        with replay("test-pipeline", storage=storage, exclude=[save]):
+            result = save({"key": "value"})
+
+        # save should execute again because it was excluded
+        assert call_counts["save"] == 1
+        assert result == '{"key": "value"}'
