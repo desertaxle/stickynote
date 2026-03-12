@@ -21,6 +21,11 @@ def save(data: dict) -> str:
     return json.dumps(data)
 
 
+def fetch_user(user_id: int) -> dict:
+    call_counts["fetch_user"] = call_counts.get("fetch_user", 0) + 1
+    return {"id": user_id, "name": f"User {user_id}"}
+
+
 class TestReplaySync:
     def setup_method(self):
         call_counts.clear()
@@ -122,3 +127,76 @@ class TestReplayFiltering:
         # save should execute again because it was excluded
         assert call_counts["save"] == 1
         assert result == '{"key": "value"}'
+
+
+class TestReplayLoopsAndRecovery:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_loop_produces_distinct_cache_entries(self):
+        storage = MemoryStorage()
+
+        with replay("test-pipeline", storage=storage):
+            results = [fetch_user(uid) for uid in [1, 2, 3]]
+
+        assert call_counts["fetch_user"] == 3
+        assert results == [
+            {"id": 1, "name": "User 1"},
+            {"id": 2, "name": "User 2"},
+            {"id": 3, "name": "User 3"},
+        ]
+
+        # Replay: all from cache
+        call_counts.clear()
+        with replay("test-pipeline", storage=storage):
+            results = [fetch_user(uid) for uid in [1, 2, 3]]
+
+        assert call_counts.get("fetch_user", 0) == 0
+        assert results == [
+            {"id": 1, "name": "User 1"},
+            {"id": 2, "name": "User 2"},
+            {"id": 3, "name": "User 3"},
+        ]
+
+    def test_same_function_same_args_different_calls(self):
+        """Two calls to the same function with same args at different call sites."""
+        storage = MemoryStorage()
+        results = []
+
+        with replay("test-pipeline", storage=storage):
+            results.append(fetch_user(1))
+            results.append(fetch_user(1))  # same args, different line
+
+        assert call_counts["fetch_user"] == 2
+        # Both should be cached on replay
+        call_counts.clear()
+        with replay("test-pipeline", storage=storage):
+            replay_results = []
+            replay_results.append(fetch_user(1))
+            replay_results.append(fetch_user(1))
+
+        assert call_counts.get("fetch_user", 0) == 0
+        assert replay_results == results
+
+    def test_crash_recovery_seamless_transition(self):
+        """Simulate a crash: first run caches some calls, second run replays
+        cached and executes uncached."""
+        storage = MemoryStorage()
+
+        # First run: only fetch_data runs, then we "crash" before process
+        with replay("test-pipeline", storage=storage):
+            data = fetch_data("users")
+            # Simulate crash: don't call process()
+
+        assert call_counts["fetch_data"] == 1
+
+        # Second run: fetch_data should be cached, process should execute
+        call_counts.clear()
+        with replay("test-pipeline", storage=storage):
+            data = fetch_data("users")
+            result = process(data)
+
+        assert call_counts.get("fetch_data", 0) == 0  # cached
+        assert call_counts["process"] == 1  # executed fresh
+        assert data == {"source": "users", "data": [1, 2, 3]}
+        assert result == {"processed": True, "source": "users", "data": [1, 2, 3]}
