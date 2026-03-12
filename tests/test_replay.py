@@ -200,3 +200,71 @@ class TestReplayLoopsAndRecovery:
         assert call_counts["process"] == 1  # executed fresh
         assert data == {"source": "users", "data": [1, 2, 3]}
         assert result == {"processed": True, "source": "users", "data": [1, 2, 3]}
+
+
+async def async_fetch_data(source: str) -> dict:
+    call_counts["async_fetch_data"] = call_counts.get("async_fetch_data", 0) + 1
+    return {"source": source, "data": [1, 2, 3]}
+
+
+async def async_process(data: dict) -> dict:
+    call_counts["async_process"] = call_counts.get("async_process", 0) + 1
+    return {"processed": True, **data}
+
+
+class TestReplayAsync:
+    def setup_method(self):
+        call_counts.clear()
+
+    async def test_async_record_and_replay(self):
+        storage = MemoryStorage()
+
+        async with replay("async-pipeline", storage=storage):
+            data = await async_fetch_data("users")
+            result = await async_process(data)
+
+        assert data == {"source": "users", "data": [1, 2, 3]}
+        assert result == {"processed": True, "source": "users", "data": [1, 2, 3]}
+        assert call_counts["async_fetch_data"] == 1
+        assert call_counts["async_process"] == 1
+
+        call_counts.clear()
+        async with replay("async-pipeline", storage=storage):
+            data = await async_fetch_data("users")
+            result = await async_process(data)
+
+        assert data == {"source": "users", "data": [1, 2, 3]}
+        assert result == {"processed": True, "source": "users", "data": [1, 2, 3]}
+        assert call_counts.get("async_fetch_data", 0) == 0
+        assert call_counts.get("async_process", 0) == 0
+
+    async def test_async_loop_handling(self):
+        storage = MemoryStorage()
+
+        async with replay("async-pipeline", storage=storage):
+            results = [await async_fetch_data(str(uid)) for uid in [1, 2, 3]]
+
+        assert call_counts["async_fetch_data"] == 3
+
+        call_counts.clear()
+        async with replay("async-pipeline", storage=storage):
+            replay_results = [await async_fetch_data(str(uid)) for uid in [1, 2, 3]]
+
+        assert call_counts.get("async_fetch_data", 0) == 0
+        assert replay_results == results
+
+    async def test_async_crash_recovery(self):
+        storage = MemoryStorage()
+
+        async with replay("async-pipeline", storage=storage):
+            data = await async_fetch_data("users")
+
+        assert call_counts["async_fetch_data"] == 1
+
+        call_counts.clear()
+        async with replay("async-pipeline", storage=storage):
+            data = await async_fetch_data("users")
+            await async_process(data)
+
+        assert call_counts.get("async_fetch_data", 0) == 0
+        assert call_counts["async_process"] == 1
