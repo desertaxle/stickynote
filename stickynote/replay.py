@@ -16,27 +16,9 @@ from stickynote.storage import DEFAULT_STORAGE, MemoStorage
 def _is_stdlib_module(module_name: str) -> bool:
     """Check if a module name belongs to the standard library or builtins."""
     top_level = module_name.split(".")[0]
-
     if top_level == "builtins":
         return True
-
-    if hasattr(sys, "stdlib_module_names"):
-        # Python 3.10+
-        return top_level in sys.stdlib_module_names
-
-    # Fallback for Python 3.9
-    import sysconfig
-
-    try:
-        spec = __import__("importlib.util", fromlist=["find_spec"]).find_spec(top_level)
-    except (ModuleNotFoundError, ValueError):
-        return True
-
-    if spec is None or spec.origin is None:
-        return True  # Built-in C module
-
-    stdlib_path = sysconfig.get_path("stdlib")
-    return bool(stdlib_path and spec.origin.startswith(stdlib_path))
+    return top_level in sys.stdlib_module_names
 
 
 class replay:

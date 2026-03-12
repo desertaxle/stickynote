@@ -28,6 +28,11 @@ def fetch_user(user_id: int) -> dict:
     return {"id": user_id, "name": f"User {user_id}"}
 
 
+def fn_with_unhashable(lock: object) -> str:  # noqa: ARG001
+    call_counts["fn_with_unhashable"] = call_counts.get("fn_with_unhashable", 0) + 1
+    return "done"
+
+
 class TestReplaySync:
     def setup_method(self):
         call_counts.clear()
@@ -304,3 +309,55 @@ class TestReplayEdgeCases:
         from stickynote import replay as replay_import
 
         assert replay_import is replay
+
+    def test_single_serializer_accepted(self):
+        from stickynote.serializers import JsonSerializer
+
+        storage = MemoryStorage()
+
+        with replay("test-pipeline", storage=storage, serializer=JsonSerializer()):
+            data = fetch_data("users")
+
+        assert data == {"source": "users", "data": [1, 2, 3]}
+
+        call_counts.clear()
+        with replay("test-pipeline", storage=storage, serializer=JsonSerializer()):
+            data = fetch_data("users")
+
+        assert call_counts.get("fetch_data", 0) == 0
+
+    def test_callable_without_module_not_patched(self):
+        storage = MemoryStorage()
+
+        # Temporarily inject a callable with no __module__ into globals
+        import types
+
+        no_module_fn = types.FunctionType(
+            (lambda x: x).__code__, globals(), "no_module_fn"
+        )
+        no_module_fn.__module__ = None  # type: ignore[assignment]
+        globals()["no_module_fn"] = no_module_fn
+        try:
+            with replay("test-pipeline", storage=storage):
+                # no_module_fn should be skipped (not patched)
+                assert globals()["no_module_fn"] is no_module_fn
+        finally:
+            del globals()["no_module_fn"]
+
+    def test_builtins_not_patched(self):
+        """Directly verify builtins module detection."""
+        from stickynote.replay import _is_stdlib_module
+
+        assert _is_stdlib_module("builtins") is True
+
+    def test_unhashable_args_still_work(self):
+        """Functions with args that can't be serialized use fallback key."""
+        import threading
+
+        storage = MemoryStorage()
+
+        with replay("test-pipeline", storage=storage):
+            result = fn_with_unhashable(threading.Lock())
+
+        assert result == "done"
+        assert call_counts["fn_with_unhashable"] == 1
