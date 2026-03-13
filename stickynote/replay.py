@@ -175,6 +175,70 @@ class replay:
             await storage.delete_async(key)
         await storage.delete_async(keys_key)
 
+    @classmethod
+    def complete_suspended(
+        cls,
+        key: str,
+        value: Any,
+        storage: MemoStorage,
+        serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
+        source_hash: str = "",
+    ) -> None:
+        """Store a result for a previously suspended call, in the correct envelope format."""
+        if isinstance(serializer, Serializer):
+            serializer_chain: tuple[Serializer, ...] = (serializer,)
+        else:
+            serializer_chain = tuple(serializer)
+
+        exceptions: list[Exception] = []
+        for s in serializer_chain:
+            try:
+                data = s.serialize(value)
+                break
+            except Exception as e:
+                exceptions.append(e)
+        else:
+            raise ExceptionGroup(
+                "All serializers failed to serialize the result.", exceptions
+            )
+
+        envelope = json.dumps(
+            {"type": "value", "data": data, "source_hash": source_hash}
+        )
+        storage.set(key, envelope)
+
+    @classmethod
+    async def complete_suspended_async(
+        cls,
+        key: str,
+        value: Any,
+        storage: MemoStorage,
+        serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
+        source_hash: str = "",
+    ) -> None:
+        """Async version of complete_suspended."""
+        if isinstance(serializer, Serializer):
+            serializer_chain: tuple[Serializer, ...] = (serializer,)
+        else:
+            serializer_chain = tuple(serializer)
+
+        exceptions: list[Exception] = []
+        for s in serializer_chain:
+            try:
+                data = s.serialize(value)
+                break
+            except Exception as e:
+                exceptions.append(e)
+        else:
+            raise ExceptionGroup(
+                "All serializers failed to serialize the result.", exceptions
+            )
+
+        envelope = json.dumps(
+            {"type": "value", "data": data, "source_hash": source_hash}
+        )
+        await storage.set_async(key, envelope)
+
     def __enter__(self) -> replay:
         frame = inspect.currentframe()
         assert frame is not None and frame.f_back is not None

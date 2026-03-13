@@ -1163,3 +1163,111 @@ class TestSuspendExecution:
 
         assert len(events) == 1
         assert events[0][0] == "suspend"
+
+
+class TestCompleteSuspended:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_complete_suspended_stores_result(self):
+        storage = MemoryStorage()
+
+        def suspending_func():
+            call_counts["suspend"] = call_counts.get("suspend", 0) + 1
+            raise SuspendExecution("waiting")
+
+        with (
+            pytest.raises(SuspendExecution) as exc_info,
+            replay("test", storage=storage),
+        ):
+            suspending_func()
+
+        key = exc_info.value.key
+        source_hash = exc_info.value.source_hash
+        assert key is not None
+        assert source_hash is not None
+
+        replay.complete_suspended(
+            key=key,
+            value="the response",
+            storage=storage,
+            source_hash=source_hash,
+        )
+
+        raw = storage.get(key)
+        envelope = json.loads(raw)
+        assert envelope["type"] == "value"
+
+    async def test_complete_suspended_async(self):
+        storage = MemoryStorage()
+
+        async def async_suspend():
+            raise SuspendExecution("waiting")
+
+        with pytest.raises(SuspendExecution) as exc_info:
+            async with replay("test", storage=storage):
+                await async_suspend()
+
+        key = exc_info.value.key
+        source_hash = exc_info.value.source_hash
+        assert key is not None
+        assert source_hash is not None
+
+        await replay.complete_suspended_async(
+            key=key,
+            value={"answer": 42},
+            storage=storage,
+            source_hash=source_hash,
+        )
+
+        raw = await storage.get_async(key)
+        envelope = json.loads(raw)
+        assert envelope["type"] == "value"
+
+    def test_full_suspend_resume_cycle(self):
+        """End-to-end: suspend, complete, resume from scratch."""
+        storage = MemoryStorage()
+        suspend_on_first = True
+
+        @replayable
+        def maybe_suspend():
+            call_counts["maybe"] = call_counts.get("maybe", 0) + 1
+            nonlocal suspend_on_first
+            if suspend_on_first:
+                raise SuspendExecution("waiting")
+            return "live result"
+
+        with (
+            pytest.raises(SuspendExecution) as exc_info,
+            replay("test", storage=storage),
+        ):
+            fetch_data("users")
+            maybe_suspend()
+
+        assert call_counts["fetch_data"] == 1
+        assert call_counts["maybe"] == 1
+
+        key = exc_info.value.key
+        source_hash = exc_info.value.source_hash
+        assert key is not None
+        assert source_hash is not None
+
+        replay.complete_suspended(
+            key=key,
+            value="completed response",
+            storage=storage,
+            source_hash=source_hash,
+        )
+
+        call_counts.clear()
+        suspend_on_first = False
+
+        results = []
+        with replay("test", storage=storage):
+            results.append(fetch_data("users"))
+            results.append(maybe_suspend())
+
+        assert call_counts.get("fetch_data", 0) == 0
+        assert call_counts.get("maybe", 0) == 0
+        assert results[0] == {"source": "users", "data": [1, 2, 3]}
+        assert results[1] == "completed response"
