@@ -2174,3 +2174,92 @@ class TestReplayableEdgeCases:
                 await async_replayable_failing()
 
         assert call_counts.get("async_replayable_failing", 0) == 0
+
+
+class TestExceptionCacheWriteFailure:
+    """Tests for when _write_cache fails while caching an exception."""
+
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_sync_wrapper_write_cache_failure(self):
+        """Original exception propagates when _write_cache fails (sync wrapper)."""
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(ValueError, match="something went wrong"),
+            replay("test", storage=storage) as session,
+        ):
+            original_write = session._write_cache
+
+            def broken_write(key, value, type_, source_hash):
+                if type_ == "exception":
+                    raise RuntimeError("storage broke")
+                return original_write(key, value, type_, source_hash)
+
+            session._write_cache = broken_write  # ty: ignore[invalid-assignment]
+            failing_func()
+
+    async def test_async_wrapper_write_cache_failure(self):
+        """Original exception propagates when _write_cache_async fails (async wrapper)."""
+        storage = MemoryStorage()
+
+        with pytest.raises(ValueError, match="async went wrong"):
+            async with replay("test", storage=storage) as session:
+                original_write = session._write_cache_async
+
+                async def broken_write(key, value, type_, source_hash):
+                    if type_ == "exception":
+                        raise RuntimeError("storage broke")
+                    return await original_write(key, value, type_, source_hash)
+
+                session._write_cache_async = (  # ty: ignore[invalid-assignment]
+                    broken_write
+                )
+                await async_failing_func()
+
+    def test_sync_replayable_write_cache_failure(self):
+        """Original exception propagates when _write_cache fails (sync replayable)."""
+        storage = MemoryStorage()
+
+        @replayable
+        def local_failing():
+            raise ValueError("replayable original error")
+
+        with (
+            pytest.raises(ValueError, match="replayable original error"),
+            replay("test", storage=storage, exclude=[local_failing]) as session,
+        ):
+            original_write = session._write_cache
+
+            def broken_write(key, value, type_, source_hash):
+                if type_ == "exception":
+                    raise RuntimeError("storage broke")
+                return original_write(key, value, type_, source_hash)
+
+            session._write_cache = broken_write  # ty: ignore[invalid-assignment]
+            local_failing()
+
+    async def test_async_replayable_write_cache_failure(self):
+        """Original exception propagates when _write_cache_async fails (async replayable)."""
+        storage = MemoryStorage()
+
+        @replayable
+        async def local_failing():
+            raise ValueError("async replayable original error")
+
+        with pytest.raises(ValueError, match="async replayable original error"):
+            async with replay(
+                "test", storage=storage, exclude=[local_failing]
+            ) as session:
+                original_write = session._write_cache_async
+
+                async def broken_write(key, value, type_, source_hash):
+                    if type_ == "exception":
+                        raise RuntimeError("storage broke")
+                    return await original_write(key, value, type_, source_hash)
+
+                session._write_cache_async = (  # ty: ignore[invalid-assignment]
+                    broken_write
+                )
+                await local_failing()
