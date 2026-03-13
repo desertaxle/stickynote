@@ -48,6 +48,7 @@ class replay:
         serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
         exclude: list[Callable[..., Any]] | None = None,
         validate: bool | ValidationMode = True,
+        cache_exceptions: bool = True,
     ):
         self.identifier = identifier
         self.storage = storage
@@ -60,6 +61,7 @@ class replay:
         self._originals: dict[str, Any] = {}
         self._frame_globals: dict[str, Any] | None = None
         self._inputs = Inputs()
+        self._cache_exceptions = cache_exceptions
 
         if isinstance(validate, bool):
             self._validate = (
@@ -262,11 +264,20 @@ class replay:
             if envelope is not None and self._validate_entry(
                 envelope, source_hash, func_name
             ):
-                return self._deserialize_value(envelope["data"])
+                value = self._deserialize_value(envelope["data"])
+                if envelope["type"] == "exception":
+                    raise value
+                return value
 
-            result = original(*args, **kwargs)
-            self._write_cache(key, result, "value", source_hash)
-            return result
+            try:
+                result = original(*args, **kwargs)
+            except Exception as exc:
+                if self._cache_exceptions:
+                    self._write_cache(key, exc, "exception", source_hash)
+                raise
+            else:
+                self._write_cache(key, result, "value", source_hash)
+                return result
 
         return wrapper
 
@@ -284,10 +295,19 @@ class replay:
             if envelope is not None and self._validate_entry(
                 envelope, source_hash, func_name
             ):
-                return self._deserialize_value(envelope["data"])
+                value = self._deserialize_value(envelope["data"])
+                if envelope["type"] == "exception":
+                    raise value
+                return value
 
-            result = await original(*args, **kwargs)
-            await self._write_cache_async(key, result, "value", source_hash)
-            return result
+            try:
+                result = await original(*args, **kwargs)
+            except Exception as exc:
+                if self._cache_exceptions:
+                    await self._write_cache_async(key, exc, "exception", source_hash)
+                raise
+            else:
+                await self._write_cache_async(key, result, "value", source_hash)
+                return result
 
         return wrapper

@@ -219,6 +219,21 @@ async def async_process(data: dict) -> dict:
     return {"processed": True, **data}
 
 
+def failing_func() -> str:
+    call_counts["failing_func"] = call_counts.get("failing_func", 0) + 1
+    raise ValueError("something went wrong")
+
+
+async def async_failing_func() -> str:
+    call_counts["async_failing_func"] = call_counts.get("async_failing_func", 0) + 1
+    raise ValueError("async went wrong")
+
+
+def keyboard_interrupt_func() -> str:
+    call_counts["kbd"] = call_counts.get("kbd", 0) + 1
+    raise KeyboardInterrupt()
+
+
 class TestReplayAsync:
     def setup_method(self):
         call_counts.clear()
@@ -526,3 +541,92 @@ class TestReplayValidation:
             fetch_data("users")
 
         assert call_counts.get("fetch_data", 0) == 0  # Cached, validation skipped
+
+
+class TestReplayExceptionCaching:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_exception_cached_and_replayed(self):
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(ValueError, match="something went wrong"),
+            replay("test", storage=storage),
+        ):
+            failing_func()
+
+        assert call_counts["failing_func"] == 1
+
+        # Replay: exception should be cached
+        call_counts.clear()
+        with (
+            pytest.raises(ValueError, match="something went wrong"),
+            replay("test", storage=storage),
+        ):
+            failing_func()
+
+        assert call_counts.get("failing_func", 0) == 0  # Not re-executed
+
+    def test_exception_envelope_type(self):
+        storage = MemoryStorage()
+
+        with pytest.raises(ValueError), replay("test", storage=storage):
+            failing_func()
+
+        for value in storage.cache.values():
+            envelope = json.loads(value)
+            assert envelope["type"] == "exception"
+
+    def test_cache_exceptions_false_retries(self):
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(ValueError),
+            replay("test", storage=storage, cache_exceptions=False),
+        ):
+            failing_func()
+
+        assert call_counts["failing_func"] == 1
+
+        # Retry: exception not cached, function re-executes
+        call_counts.clear()
+        with (
+            pytest.raises(ValueError),
+            replay("test", storage=storage, cache_exceptions=False),
+        ):
+            failing_func()
+
+        assert call_counts["failing_func"] == 1  # Re-executed
+
+    async def test_async_exception_cached(self):
+        storage = MemoryStorage()
+
+        with pytest.raises(ValueError, match="async went wrong"):
+            async with replay("test", storage=storage):
+                await async_failing_func()
+
+        assert call_counts["async_failing_func"] == 1
+
+        call_counts.clear()
+        with pytest.raises(ValueError, match="async went wrong"):
+            async with replay("test", storage=storage):
+                await async_failing_func()
+
+        assert call_counts.get("async_failing_func", 0) == 0
+
+    def test_base_exception_not_cached(self):
+        """KeyboardInterrupt and other BaseExceptions should NOT be cached."""
+        storage = MemoryStorage()
+
+        with pytest.raises(KeyboardInterrupt), replay("test", storage=storage):
+            keyboard_interrupt_func()
+
+        assert call_counts["kbd"] == 1
+
+        # Verify it was NOT cached — function should re-execute on second run
+        call_counts.clear()
+        with pytest.raises(KeyboardInterrupt), replay("test", storage=storage):
+            keyboard_interrupt_func()
+
+        assert call_counts["kbd"] == 1  # Re-executed, not cached
