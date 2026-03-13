@@ -185,3 +185,15 @@ class RedisStorage(MemoStorage):
         pipe.set(self._key(key), value)
         pipe.set(self._created_at_key(key), datetime.now(timezone.utc).isoformat())
         await pipe.execute()
+
+    def delete(self, key: str) -> None:
+        pipe = self.client.pipeline()
+        pipe.delete(self._key(key))
+        pipe.delete(self._created_at_key(key))
+        pipe.execute()
+
+    async def delete_async(self, key: str) -> None:
+        pipe = self.async_client.pipeline()
+        pipe.delete(self._key(key))
+        pipe.delete(self._created_at_key(key))
+        await pipe.execute()

@@ -107,3 +107,17 @@ class TestFileStorage:
     async def test_set_async(self, storage: FileStorage):
         await storage.set_async("test", "test")
         assert await storage.get_async("test") == "test"
+
+    def test_delete(self, storage: FileStorage, existing_file: Path):
+        storage.delete(existing_file.name)
+        assert not storage.exists(existing_file.name)
+
+    def test_delete_nonexistent(self, storage: FileStorage):
+        storage.delete("nonexistent")  # Should not raise
+
+    async def test_delete_async(self, storage: FileStorage, existing_file: Path):
+        await storage.delete_async(existing_file.name)
+        assert not await storage.exists_async(existing_file.name)
+
+    async def test_delete_async_nonexistent(self, storage: FileStorage):
+        await storage.delete_async("nonexistent")  # Should not raise

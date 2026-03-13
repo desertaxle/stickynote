@@ -123,6 +123,22 @@ class TestRedisStorage:
         storage.set("test", "value")
         assert storage.client.exists("stickynote:test")
 
+    def test_delete(self, storage: RedisStorage, existing_key: str):
+        assert storage.exists(existing_key)
+        storage.delete(existing_key)
+        assert not storage.exists(existing_key)
+
+    def test_delete_nonexistent(self, storage: RedisStorage):
+        storage.delete("nonexistent")  # Should not raise
+
+    async def test_delete_async(self, storage: RedisStorage, existing_key: str):
+        assert await storage.exists_async(existing_key)
+        await storage.delete_async(existing_key)
+        assert not await storage.exists_async(existing_key)
+
+    async def test_delete_async_nonexistent(self, storage: RedisStorage):
+        await storage.delete_async("nonexistent")  # Should not raise
+
     def test_custom_prefix(self, storage: RedisStorage):
         try:
             storage = RedisStorage(db=15, prefix="custom:")

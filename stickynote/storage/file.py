@@ -135,3 +135,9 @@ class FileStorage(MemoStorage):
         """
         self._ensure_directory_exists()
         await asyncio.to_thread((self.path / key).write_text, value)
+
+    def delete(self, key: str) -> None:
+        (self.path / key).unlink(missing_ok=True)
+
+    async def delete_async(self, key: str) -> None:
+        await asyncio.to_thread(self.delete, key)

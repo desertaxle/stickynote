@@ -95,3 +95,21 @@ class MemoStorage(Protocol):
         Set the value of a key in the backend.
         """
         ...  # pragma: no cover
+
+    def delete(self, key: str) -> None:
+        """
+        Delete a key from storage. No-op if key doesn't exist (idempotent).
+
+        Args:
+            key: The key to delete
+        """
+        ...  # pragma: no cover
+
+    async def delete_async(self, key: str) -> None:
+        """
+        Delete a key from storage. No-op if key doesn't exist (idempotent).
+
+        Args:
+            key: The key to delete
+        """
+        ...  # pragma: no cover
