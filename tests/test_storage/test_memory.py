@@ -101,3 +101,17 @@ class TestMemoryStorage:
     async def test_set_async(self, storage: MemoryStorage):
         await storage.set_async("test", "test")
         assert await storage.get_async("test") == "test"
+
+    def test_delete(self, storage: MemoryStorage, existing_key: str):
+        storage.delete(existing_key)
+        assert not storage.exists(existing_key)
+
+    def test_delete_nonexistent(self, storage: MemoryStorage):
+        storage.delete("nonexistent")  # Should not raise
+
+    async def test_delete_async(self, storage: MemoryStorage, existing_key: str):
+        await storage.delete_async(existing_key)
+        assert not await storage.exists_async(existing_key)
+
+    async def test_delete_async_nonexistent(self, storage: MemoryStorage):
+        await storage.delete_async("nonexistent")  # Should not raise

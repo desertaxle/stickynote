@@ -125,3 +125,10 @@ class MemoryStorage(MemoStorage):
         """
         self.cache[key] = value
         self.metadata[key] = {"created_at": datetime.now(timezone.utc)}
+
+    def delete(self, key: str) -> None:
+        self.cache.pop(key, None)
+        self.metadata.pop(key, None)
+
+    async def delete_async(self, key: str) -> None:
+        self.delete(key)
