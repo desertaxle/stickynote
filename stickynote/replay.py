@@ -366,3 +366,102 @@ def is_replaying() -> bool:
     if session is None:
         return False
     return session._all_hits
+
+
+def replayable(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Decorator that marks a callable for replay participation via ContextVar.
+
+    When called inside a replay context, the decorator intercepts the call and
+    performs cache lookup/store. When called outside a replay context, it's a
+    pass-through.
+    """
+    source_hash = ""
+    try:
+        source = inspect.getsource(func)
+        source_hash = hashlib.sha256(source.encode()).hexdigest()
+    except (OSError, TypeError):
+        pass
+
+    if inspect.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            session = _replay_context.get(None)
+            if session is None:
+                return await func(*args, **kwargs)
+
+            func_name = getattr(
+                func, "__qualname__", getattr(func, "__name__", repr(func))
+            )
+            seq = session._next_seq()
+            key = session._build_key(func_name, seq, func, args, kwargs)
+
+            envelope = await session._read_cache_async(key)
+            if envelope is not None and session._validate_entry(
+                envelope, source_hash, func_name
+            ):
+                if session._hooks is not None:
+                    session._hooks.on_cache_hit(key, seq, func_name)
+                value = session._deserialize_value(envelope["data"])
+                if envelope["type"] == "exception":
+                    raise value
+                return value
+
+            if session._hooks is not None:
+                session._hooks.on_cache_miss(key, seq, func_name)
+            session._all_hits = False
+
+            try:
+                result = await func(*args, **kwargs)
+            except Exception as exc:
+                if session._cache_exceptions:
+                    await session._write_cache_async(key, exc, "exception", source_hash)
+                    if session._hooks is not None:
+                        session._hooks.on_exception_cached(key, seq, func_name, exc)
+                raise
+            else:
+                await session._write_cache_async(key, result, "value", source_hash)
+                return result
+
+        async_wrapper.__wrapped__ = func
+        return async_wrapper
+
+    @functools.wraps(func)
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+        session = _replay_context.get(None)
+        if session is None:
+            return func(*args, **kwargs)
+
+        func_name = getattr(func, "__qualname__", getattr(func, "__name__", repr(func)))
+        seq = session._next_seq()
+        key = session._build_key(func_name, seq, func, args, kwargs)
+
+        envelope = session._read_cache(key)
+        if envelope is not None and session._validate_entry(
+            envelope, source_hash, func_name
+        ):
+            if session._hooks is not None:
+                session._hooks.on_cache_hit(key, seq, func_name)
+            value = session._deserialize_value(envelope["data"])
+            if envelope["type"] == "exception":
+                raise value
+            return value
+
+        if session._hooks is not None:
+            session._hooks.on_cache_miss(key, seq, func_name)
+        session._all_hits = False
+
+        try:
+            result = func(*args, **kwargs)
+        except Exception as exc:
+            if session._cache_exceptions:
+                session._write_cache(key, exc, "exception", source_hash)
+                if session._hooks is not None:
+                    session._hooks.on_exception_cached(key, seq, func_name, exc)
+            raise
+        else:
+            session._write_cache(key, result, "value", source_hash)
+            return result
+
+    sync_wrapper.__wrapped__ = func
+    return sync_wrapper

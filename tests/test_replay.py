@@ -9,6 +9,7 @@ from stickynote.replay import (
     _replay_context,
     is_replaying,
     replay,
+    replayable,
 )
 from stickynote.storage import MemoryStorage
 
@@ -785,6 +786,20 @@ class TestReplayHooks:
         assert events == [("hit", "async_fetch_data")]
 
 
+@replayable
+def replayable_fetch(source: str) -> dict:
+    call_counts["replayable_fetch"] = call_counts.get("replayable_fetch", 0) + 1
+    return {"source": source, "data": [1, 2, 3]}
+
+
+@replayable
+async def async_replayable_fetch(source: str) -> dict:
+    call_counts["async_replayable_fetch"] = (
+        call_counts.get("async_replayable_fetch", 0) + 1
+    )
+    return {"source": source, "data": [1, 2, 3]}
+
+
 def is_replaying_cacheable() -> str:
     """Module-level function that gets patched by replay."""
     call_counts["is_replaying_cacheable"] = (
@@ -874,3 +889,73 @@ class TestIsReplaying:
             observed.append(is_replaying())
 
         assert observed == [True]
+
+
+class TestReplayable:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_passthrough_outside_replay(self):
+        """@replayable is a no-op without an active replay session."""
+        result = replayable_fetch("users")
+        assert result == {"source": "users", "data": [1, 2, 3]}
+        assert call_counts["replayable_fetch"] == 1
+
+    def test_participates_in_replay_session(self):
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage):
+            data = replayable_fetch("users")
+
+        assert data == {"source": "users", "data": [1, 2, 3]}
+        assert call_counts["replayable_fetch"] == 1
+
+        call_counts.clear()
+        with replay("test", storage=storage):
+            data = replayable_fetch("users")
+
+        assert call_counts.get("replayable_fetch", 0) == 0
+        assert data == {"source": "users", "data": [1, 2, 3]}
+
+    def test_shares_sequence_counter_with_globals_patching(self):
+        """@replayable and globals-patched functions share the same session."""
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage):
+            d1 = fetch_data("users")
+            d2 = replayable_fetch("orders")
+
+        assert call_counts["fetch_data"] == 1
+        assert call_counts["replayable_fetch"] == 1
+
+        call_counts.clear()
+        with replay("test", storage=storage):
+            d1 = fetch_data("users")
+            d2 = replayable_fetch("orders")
+
+        assert call_counts.get("fetch_data", 0) == 0
+        assert call_counts.get("replayable_fetch", 0) == 0
+        assert d1 == {"source": "users", "data": [1, 2, 3]}
+        assert d2 == {"source": "orders", "data": [1, 2, 3]}
+
+    async def test_async_replayable(self):
+        storage = MemoryStorage()
+
+        async with replay("test", storage=storage):
+            data = await async_replayable_fetch("users")
+
+        assert data == {"source": "users", "data": [1, 2, 3]}
+        assert call_counts["async_replayable_fetch"] == 1
+
+        call_counts.clear()
+        async with replay("test", storage=storage):
+            data = await async_replayable_fetch("users")
+
+        assert call_counts.get("async_replayable_fetch", 0) == 0
+
+    def test_has_wrapped_attribute(self):
+        """@replayable preserves __wrapped__ for accessing the original."""
+        assert hasattr(replayable_fetch, "__wrapped__")
+        wrapped = replayable_fetch.__wrapped__
+        result = wrapped("test")  # type: ignore[operator]
+        assert result == {"source": "test", "data": [1, 2, 3]}
