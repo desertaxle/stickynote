@@ -3,6 +3,7 @@ import json
 from datetime import timezone
 
 import pytest
+from exceptiongroup import ExceptionGroup
 
 from stickynote import replay_time
 from stickynote.replay import (
@@ -244,6 +245,16 @@ async def async_failing_func() -> str:
 def keyboard_interrupt_func() -> str:
     call_counts["kbd"] = call_counts.get("kbd", 0) + 1
     raise KeyboardInterrupt()
+
+
+def suspending_module_func() -> str:
+    call_counts["suspend_module"] = call_counts.get("suspend_module", 0) + 1
+    raise SuspendExecution("module-level suspend")
+
+
+async def async_suspending_module_func() -> str:
+    call_counts["async_suspend_module"] = call_counts.get("async_suspend_module", 0) + 1
+    raise SuspendExecution("async module-level suspend")
 
 
 class TestReplayAsync:
@@ -828,6 +839,36 @@ async def async_replayable_fetch(source: str) -> dict:
     return {"source": source, "data": [1, 2, 3]}
 
 
+@replayable
+def replayable_failing() -> str:
+    call_counts["replayable_failing"] = call_counts.get("replayable_failing", 0) + 1
+    raise ValueError("replayable error")
+
+
+@replayable
+async def async_replayable_failing() -> str:
+    call_counts["async_replayable_failing"] = (
+        call_counts.get("async_replayable_failing", 0) + 1
+    )
+    raise ValueError("async replayable error")
+
+
+@replayable
+def replayable_suspending() -> str:
+    call_counts["replayable_suspending"] = (
+        call_counts.get("replayable_suspending", 0) + 1
+    )
+    raise SuspendExecution("replayable suspend")
+
+
+@replayable
+async def async_replayable_suspending() -> str:
+    call_counts["async_replayable_suspending"] = (
+        call_counts.get("async_replayable_suspending", 0) + 1
+    )
+    raise SuspendExecution("async replayable suspend")
+
+
 def is_replaying_cacheable() -> str:
     """Module-level function that gets patched by replay."""
     call_counts["is_replaying_cacheable"] = (
@@ -1361,3 +1402,775 @@ class TestPublicAPI:
         assert ValidationMode is not None
         assert is_replaying is not None
         assert replay_time is not None
+
+
+class TestCorruptStorageHandling:
+    """Tests for error handling when storage contains corrupt data."""
+
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_replay_time_handles_corrupt_time_data(self):
+        storage = MemoryStorage()
+        r = replay("test", storage=storage, deterministic_time=True)
+        r._frame_globals = globals()
+        r._context_token = _replay_context.set(r)
+        try:
+            seq = r._next_time_seq()
+            key = r._time_key(seq)
+            storage.set(key, "not valid json")
+            r._time_seq = 0
+            result_seq, result_val = r._replay_time()
+            assert result_seq == 1
+            assert result_val is None
+        finally:
+            _replay_context.reset(r._context_token)
+
+    def test_load_existing_keys_handles_corrupt_data(self):
+        storage = MemoryStorage()
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        storage.set(keys_key, "not valid json")
+
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        assert call_counts["fetch_data"] == 1
+
+    async def test_load_existing_keys_async_handles_corrupt_data(self):
+        storage = MemoryStorage()
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        storage.set(keys_key, "not valid json")
+
+        async with replay("test", storage=storage):
+            await async_fetch_data("users")
+
+        assert call_counts["async_fetch_data"] == 1
+
+    def test_cleanup_handles_corrupt_keys_data(self):
+        storage = MemoryStorage()
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        storage.set(keys_key, "not valid json")
+
+        replay.cleanup("test", storage=storage)  # Should not raise
+
+    async def test_cleanup_async_nonexistent_is_noop(self):
+        storage = MemoryStorage()
+        await replay.cleanup_async("nonexistent", storage=storage)
+
+    async def test_cleanup_async_handles_corrupt_keys_data(self):
+        storage = MemoryStorage()
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        await storage.set_async(keys_key, "not valid json")
+
+        await replay.cleanup_async("test", storage=storage)  # Should not raise
+
+    def test_read_cache_handles_invalid_json(self):
+        storage = MemoryStorage()
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        for key in list(storage.cache):
+            if key != keys_key:
+                storage.cache[key] = "not valid json"
+
+        call_counts.clear()
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        assert call_counts["fetch_data"] == 1
+
+    def test_read_cache_handles_malformed_envelope(self):
+        storage = MemoryStorage()
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        for key in list(storage.cache):
+            if key != keys_key:
+                storage.cache[key] = json.dumps({"foo": "bar"})
+
+        call_counts.clear()
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        assert call_counts["fetch_data"] == 1
+
+    def test_read_cache_handles_missing_memo_race(self):
+        from stickynote.storage.base import MissingMemoError as _MissingMemoError
+
+        storage = MemoryStorage()
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        original_get = storage.get
+
+        def racing_get(key, **kwargs):
+            if key != keys_key and not hasattr(racing_get, "_passed"):
+                racing_get._passed = True  # type: ignore[attr-defined]
+                raise _MissingMemoError("gone")
+            return original_get(key, **kwargs)
+
+        storage.get = racing_get  # type: ignore[assignment]
+
+        call_counts.clear()
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        assert call_counts["fetch_data"] == 1
+
+    async def test_read_cache_async_handles_invalid_json(self):
+        storage = MemoryStorage()
+        async with replay("test", storage=storage):
+            await async_fetch_data("users")
+
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        for key in list(storage.cache):
+            if key != keys_key:
+                storage.cache[key] = "not valid json"
+
+        call_counts.clear()
+        async with replay("test", storage=storage):
+            await async_fetch_data("users")
+
+        assert call_counts["async_fetch_data"] == 1
+
+    async def test_read_cache_async_handles_malformed_envelope(self):
+        storage = MemoryStorage()
+        async with replay("test", storage=storage):
+            await async_fetch_data("users")
+
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        for key in list(storage.cache):
+            if key != keys_key:
+                storage.cache[key] = json.dumps({"foo": "bar"})
+
+        call_counts.clear()
+        async with replay("test", storage=storage):
+            await async_fetch_data("users")
+
+        assert call_counts["async_fetch_data"] == 1
+
+    async def test_read_cache_async_handles_missing_memo_race(self):
+        from stickynote.storage.base import MissingMemoError as _MissingMemoError
+
+        storage = MemoryStorage()
+        async with replay("test", storage=storage):
+            await async_fetch_data("users")
+
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        original_get_async = storage.get_async
+
+        async def racing_get_async(key, **kwargs):
+            if key != keys_key and not hasattr(racing_get_async, "_passed"):
+                racing_get_async._passed = True  # type: ignore[attr-defined]
+                raise _MissingMemoError("gone")
+            return await original_get_async(key, **kwargs)
+
+        storage.get_async = racing_get_async  # type: ignore[assignment]
+
+        call_counts.clear()
+        async with replay("test", storage=storage):
+            await async_fetch_data("users")
+
+        assert call_counts["async_fetch_data"] == 1
+
+
+class TestCompleteSuspendedEdgeCases:
+    """Tests for complete_suspended serializer edge cases."""
+
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_complete_suspended_single_serializer(self):
+        from stickynote.serializers import JsonSerializer
+
+        storage = MemoryStorage()
+
+        def suspending():
+            raise SuspendExecution("waiting")
+
+        with (
+            pytest.raises(SuspendExecution) as exc_info,
+            replay("test", storage=storage),
+        ):
+            suspending()
+
+        key = exc_info.value.key
+        assert key is not None
+
+        replay.complete_suspended(
+            key=key,
+            value={"result": 42},
+            storage=storage,
+            serializer=JsonSerializer(),
+        )
+
+        envelope = json.loads(storage.get(key))
+        assert envelope["type"] == "value"
+
+    def test_complete_suspended_serializer_failure(self):
+        class FailSerializer:
+            def serialize(self, obj):  # noqa: ARG002
+                raise TypeError("can't serialize")
+
+            def deserialize(self, data):  # noqa: ARG002
+                raise TypeError("can't deserialize")
+
+        storage = MemoryStorage()
+
+        def suspending():
+            raise SuspendExecution("waiting")
+
+        with (
+            pytest.raises(SuspendExecution) as exc_info,
+            replay("test", storage=storage),
+        ):
+            suspending()
+
+        key = exc_info.value.key
+        assert key is not None
+
+        with pytest.raises(ExceptionGroup):
+            replay.complete_suspended(
+                key=key,
+                value=object(),
+                storage=storage,
+                serializer=[FailSerializer()],
+            )
+
+    async def test_complete_suspended_async_single_serializer(self):
+        from stickynote.serializers import JsonSerializer
+
+        storage = MemoryStorage()
+
+        async def suspending():
+            raise SuspendExecution("waiting")
+
+        with pytest.raises(SuspendExecution) as exc_info:
+            async with replay("test", storage=storage):
+                await suspending()
+
+        key = exc_info.value.key
+        assert key is not None
+
+        await replay.complete_suspended_async(
+            key=key,
+            value={"result": 42},
+            storage=storage,
+            serializer=JsonSerializer(),
+        )
+
+        envelope = json.loads(await storage.get_async(key))
+        assert envelope["type"] == "value"
+
+    async def test_complete_suspended_async_serializer_failure(self):
+        class FailSerializer:
+            def serialize(self, obj):  # noqa: ARG002
+                raise TypeError("can't serialize")
+
+            def deserialize(self, data):  # noqa: ARG002
+                raise TypeError("can't deserialize")
+
+        storage = MemoryStorage()
+
+        async def suspending():
+            raise SuspendExecution("waiting")
+
+        with pytest.raises(SuspendExecution) as exc_info:
+            async with replay("test", storage=storage):
+                await suspending()
+
+        key = exc_info.value.key
+        assert key is not None
+
+        with pytest.raises(ExceptionGroup):
+            await replay.complete_suspended_async(
+                key=key,
+                value=object(),
+                storage=storage,
+                serializer=[FailSerializer()],
+            )
+
+
+class TestSerializerFailures:
+    """Tests for serializer chain exhaustion in wrappers."""
+
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_serialize_value_all_fail(self):
+        class FailSerializer:
+            def serialize(self, obj):  # noqa: ARG002
+                raise TypeError("can't serialize")
+
+            def deserialize(self, data):  # noqa: ARG002
+                raise TypeError("can't deserialize")
+
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(ExceptionGroup),
+            replay("test", storage=storage, serializer=[FailSerializer()]),
+        ):
+            fetch_data("users")
+
+    def test_deserialize_value_all_fail(self):
+        class WriteOnlySerializer:
+            def serialize(self, obj):
+                return json.dumps(obj)
+
+            def deserialize(self, data):  # noqa: ARG002
+                raise TypeError("can't deserialize")
+
+        storage = MemoryStorage()
+
+        # Record with working serializer
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        # Replay with serializer that can't deserialize
+        call_counts.clear()
+        with (
+            pytest.raises(ExceptionGroup),
+            replay("test", storage=storage, serializer=[WriteOnlySerializer()]),
+        ):
+            fetch_data("users")
+
+
+class TestSourceHashEdgeCases:
+    """Tests for source hash computation edge cases."""
+
+    def test_compute_source_hash_fallback_for_builtin(self):
+        r = replay("test", storage=MemoryStorage())
+        result = r._compute_source_hash(len)
+        assert result == ""
+
+    def test_replayable_source_hash_fallback(self):
+        """@replayable gracefully handles functions without retrievable source."""
+        decorated = replayable(len)
+        result = decorated([1, 2, 3])
+        assert result == 3
+
+
+class TestGlobalsPatchedSuspendExecution:
+    """Tests for SuspendExecution in globals-patched (not @replayable) functions."""
+
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_sync_wrapper_suspend(self):
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(SuspendExecution) as exc_info,
+            replay("test", storage=storage),
+        ):
+            suspending_module_func()
+
+        assert exc_info.value.key is not None
+        assert exc_info.value.source_hash is not None
+        assert call_counts["suspend_module"] == 1
+
+    def test_sync_wrapper_suspend_with_hooks(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_suspend(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("suspend", func_name))
+
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(SuspendExecution),
+            replay("test", storage=storage, hooks=TestHooks()),
+        ):
+            suspending_module_func()
+
+        assert len(events) == 1
+        assert events[0][0] == "suspend"
+
+    async def test_async_wrapper_suspend(self):
+        storage = MemoryStorage()
+
+        with pytest.raises(SuspendExecution) as exc_info:
+            async with replay("test", storage=storage):
+                await async_suspending_module_func()
+
+        assert exc_info.value.key is not None
+        assert exc_info.value.source_hash is not None
+        assert call_counts["async_suspend_module"] == 1
+
+    async def test_async_wrapper_suspend_with_hooks(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_suspend(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("suspend", func_name))
+
+        storage = MemoryStorage()
+
+        with pytest.raises(SuspendExecution):
+            async with replay("test", storage=storage, hooks=TestHooks()):
+                await async_suspending_module_func()
+
+        assert len(events) == 1
+        assert events[0][0] == "suspend"
+
+    async def test_async_on_exception_cached_hook(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_exception_cached(self, key, seq, func_name, exc):  # noqa: ARG002
+                events.append(("exc", func_name, type(exc).__name__))
+
+        storage = MemoryStorage()
+
+        with pytest.raises(ValueError):
+            async with replay("test", storage=storage, hooks=TestHooks()):
+                await async_failing_func()
+
+        assert len(events) == 1
+        assert events[0] == ("exc", "async_failing_func", "ValueError")
+
+    async def test_async_exit_suspend_hooks_from_local_function(self):
+        """SuspendExecution from unpatched local function triggers __aexit__ hooks."""
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_suspend(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("suspend", func_name))
+
+        storage = MemoryStorage()
+
+        # Local function — NOT globals-patched, NOT @replayable
+        # SuspendExecution propagates directly to __aexit__
+        async def local_suspend():
+            raise SuspendExecution("waiting")
+
+        with pytest.raises(SuspendExecution):
+            async with replay("test", storage=storage, hooks=TestHooks()):
+                await local_suspend()
+
+        assert len(events) == 1
+        assert events[0][0] == "suspend"
+
+
+class TestReplayableEdgeCases:
+    """Tests for @replayable decorator edge cases."""
+
+    def setup_method(self):
+        call_counts.clear()
+
+    async def test_async_replayable_passthrough_outside_session(self):
+        result = await async_replayable_fetch("users")
+        assert result == {"source": "users", "data": [1, 2, 3]}
+        assert call_counts["async_replayable_fetch"] == 1
+
+    def test_sync_replayable_cache_hit_with_hooks(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_cache_hit(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("hit", func_name))
+
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage, hooks=TestHooks()):
+            replayable_fetch("users")
+
+        with replay("test", storage=storage, hooks=TestHooks()):
+            replayable_fetch("users")
+
+        assert len(events) >= 1
+        assert any(e == ("hit", "replayable_fetch") for e in events)
+
+    def test_sync_replayable_cache_miss_with_hooks(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_cache_miss(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("miss", func_name))
+
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage, hooks=TestHooks()):
+            replayable_fetch("users")
+
+        # @replayable gets double-wrapped (globals + ContextVar), so 2 miss events
+        assert len(events) >= 1
+        assert any(e == ("miss", "replayable_fetch") for e in events)
+
+    def test_sync_replayable_exception_cached_and_replayed(self):
+        storage = MemoryStorage()
+
+        with pytest.raises(ValueError), replay("test", storage=storage):
+            replayable_failing()
+
+        assert call_counts["replayable_failing"] == 1
+
+        call_counts.clear()
+        with pytest.raises(ValueError), replay("test", storage=storage):
+            replayable_failing()
+
+        assert call_counts.get("replayable_failing", 0) == 0
+
+    def test_sync_replayable_on_exception_cached_hook(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_exception_cached(self, key, seq, func_name, exc):  # noqa: ARG002
+                events.append(("exc", func_name, type(exc).__name__))
+
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(ValueError),
+            replay("test", storage=storage, hooks=TestHooks()),
+        ):
+            replayable_failing()
+
+        assert len(events) >= 1
+        assert any(e == ("exc", "replayable_failing", "ValueError") for e in events)
+
+    def test_sync_replayable_suspend_execution(self):
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(SuspendExecution) as exc_info,
+            replay("test", storage=storage),
+        ):
+            replayable_suspending()
+
+        assert exc_info.value.key is not None
+        assert call_counts["replayable_suspending"] == 1
+
+    def test_sync_replayable_suspend_with_hooks(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_suspend(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("suspend", func_name))
+
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(SuspendExecution),
+            replay("test", storage=storage, hooks=TestHooks()),
+        ):
+            replayable_suspending()
+
+        assert len(events) >= 1
+        assert any(e[0] == "suspend" for e in events)
+
+    async def test_async_replayable_cache_hit_with_hooks(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_cache_hit(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("hit", func_name))
+
+        storage = MemoryStorage()
+
+        async with replay("test", storage=storage, hooks=TestHooks()):
+            await async_replayable_fetch("users")
+
+        async with replay("test", storage=storage, hooks=TestHooks()):
+            await async_replayable_fetch("users")
+
+        assert len(events) >= 1
+        assert any(e == ("hit", "async_replayable_fetch") for e in events)
+
+    async def test_async_replayable_cache_miss_with_hooks(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_cache_miss(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("miss", func_name))
+
+        storage = MemoryStorage()
+
+        async with replay("test", storage=storage, hooks=TestHooks()):
+            await async_replayable_fetch("users")
+
+        assert len(events) >= 1
+        assert any(e == ("miss", "async_replayable_fetch") for e in events)
+
+    async def test_async_replayable_exception_cached_and_replayed(self):
+        storage = MemoryStorage()
+
+        with pytest.raises(ValueError):
+            async with replay("test", storage=storage):
+                await async_replayable_failing()
+
+        assert call_counts["async_replayable_failing"] == 1
+
+        call_counts.clear()
+        with pytest.raises(ValueError):
+            async with replay("test", storage=storage):
+                await async_replayable_failing()
+
+        assert call_counts.get("async_replayable_failing", 0) == 0
+
+    async def test_async_replayable_on_exception_cached_hook(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_exception_cached(self, key, seq, func_name, exc):  # noqa: ARG002
+                events.append(("exc", func_name, type(exc).__name__))
+
+        storage = MemoryStorage()
+
+        with pytest.raises(ValueError):
+            async with replay("test", storage=storage, hooks=TestHooks()):
+                await async_replayable_failing()
+
+        assert len(events) >= 1
+        assert any(
+            e == ("exc", "async_replayable_failing", "ValueError") for e in events
+        )
+
+    async def test_async_replayable_suspend_execution(self):
+        storage = MemoryStorage()
+
+        with pytest.raises(SuspendExecution) as exc_info:
+            async with replay("test", storage=storage):
+                await async_replayable_suspending()
+
+        assert exc_info.value.key is not None
+        assert call_counts["async_replayable_suspending"] == 1
+
+    async def test_async_replayable_suspend_with_hooks(self):
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_suspend(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("suspend", func_name))
+
+        storage = MemoryStorage()
+
+        with pytest.raises(SuspendExecution):
+            async with replay("test", storage=storage, hooks=TestHooks()):
+                await async_replayable_suspending()
+
+        assert len(events) >= 1
+        assert any(e[0] == "suspend" for e in events)
+
+    def test_sync_replayable_cache_hit_excluded_from_globals(self):
+        """Cache hit path in sync @replayable wrapper (exclude from globals-patching)."""
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage, exclude=[replayable_fetch]):
+            replayable_fetch("users")
+
+        call_counts.clear()
+        with replay("test", storage=storage, exclude=[replayable_fetch]):
+            data = replayable_fetch("users")
+
+        assert call_counts.get("replayable_fetch", 0) == 0
+        assert data == {"source": "users", "data": [1, 2, 3]}
+
+    def test_sync_replayable_cache_hit_hooks_excluded(self):
+        """Cache hit hooks in sync @replayable wrapper (exclude from globals-patching)."""
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_cache_hit(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("hit", func_name))
+
+        storage = MemoryStorage()
+
+        with replay(
+            "test", storage=storage, hooks=TestHooks(), exclude=[replayable_fetch]
+        ):
+            replayable_fetch("users")
+
+        with replay(
+            "test", storage=storage, hooks=TestHooks(), exclude=[replayable_fetch]
+        ):
+            replayable_fetch("users")
+
+        assert len(events) == 1
+        assert events[0] == ("hit", "replayable_fetch")
+
+    def test_sync_replayable_exception_from_cache_excluded(self):
+        """Exception from cache in sync @replayable wrapper."""
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(ValueError),
+            replay("test", storage=storage, exclude=[replayable_failing]),
+        ):
+            replayable_failing()
+
+        call_counts.clear()
+        with (
+            pytest.raises(ValueError),
+            replay("test", storage=storage, exclude=[replayable_failing]),
+        ):
+            replayable_failing()
+
+        assert call_counts.get("replayable_failing", 0) == 0
+
+    async def test_async_replayable_cache_hit_excluded_from_globals(self):
+        """Cache hit path in async @replayable wrapper."""
+        storage = MemoryStorage()
+
+        async with replay("test", storage=storage, exclude=[async_replayable_fetch]):
+            await async_replayable_fetch("users")
+
+        call_counts.clear()
+        async with replay("test", storage=storage, exclude=[async_replayable_fetch]):
+            data = await async_replayable_fetch("users")
+
+        assert call_counts.get("async_replayable_fetch", 0) == 0
+        assert data == {"source": "users", "data": [1, 2, 3]}
+
+    async def test_async_replayable_cache_hit_hooks_excluded(self):
+        """Cache hit hooks in async @replayable wrapper."""
+        events: list[tuple[str, ...]] = []
+
+        class TestHooks(ReplayHooks):
+            def on_cache_hit(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("hit", func_name))
+
+        storage = MemoryStorage()
+
+        async with replay(
+            "test",
+            storage=storage,
+            hooks=TestHooks(),
+            exclude=[async_replayable_fetch],
+        ):
+            await async_replayable_fetch("users")
+
+        async with replay(
+            "test",
+            storage=storage,
+            hooks=TestHooks(),
+            exclude=[async_replayable_fetch],
+        ):
+            await async_replayable_fetch("users")
+
+        assert len(events) == 1
+        assert events[0] == ("hit", "async_replayable_fetch")
+
+    async def test_async_replayable_exception_from_cache_excluded(self):
+        """Exception from cache in async @replayable wrapper."""
+        storage = MemoryStorage()
+
+        with pytest.raises(ValueError):
+            async with replay(
+                "test", storage=storage, exclude=[async_replayable_failing]
+            ):
+                await async_replayable_failing()
+
+        call_counts.clear()
+        with pytest.raises(ValueError):
+            async with replay(
+                "test", storage=storage, exclude=[async_replayable_failing]
+            ):
+                await async_replayable_failing()
+
+        assert call_counts.get("async_replayable_failing", 0) == 0
