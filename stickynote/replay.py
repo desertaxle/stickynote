@@ -7,6 +7,7 @@ import json
 import logging
 import sys
 from collections.abc import Callable, Iterable
+from contextvars import ContextVar
 from enum import Enum
 from typing import Any
 
@@ -28,6 +29,9 @@ class ValidationMode(Enum):
 
 class StaleReplayError(Exception):
     """Raised when a cached entry's source hash doesn't match the current function."""
+
+
+_replay_context: ContextVar[replay | None] = ContextVar("_replay_context", default=None)
 
 
 def _is_stdlib_module(module_name: str) -> bool:
@@ -62,6 +66,7 @@ class replay:
         self._frame_globals: dict[str, Any] | None = None
         self._inputs = Inputs()
         self._cache_exceptions = cache_exceptions
+        self._context_token: Any = None
 
         if isinstance(validate, bool):
             self._validate = (
@@ -74,21 +79,29 @@ class replay:
         frame = inspect.currentframe()
         assert frame is not None and frame.f_back is not None
         self._frame_globals = frame.f_back.f_globals
+        self._context_token = _replay_context.set(self)
         self._patch()
         return self
 
     def __exit__(self, *args: Any) -> None:
         self._unpatch()
+        if self._context_token is not None:
+            _replay_context.reset(self._context_token)
+            self._context_token = None
 
     async def __aenter__(self) -> replay:
         frame = inspect.currentframe()
         assert frame is not None and frame.f_back is not None
         self._frame_globals = frame.f_back.f_globals
+        self._context_token = _replay_context.set(self)
         self._patch()
         return self
 
     async def __aexit__(self, *args: Any) -> None:
         self._unpatch()
+        if self._context_token is not None:
+            _replay_context.reset(self._context_token)
+            self._context_token = None
 
     def _should_patch(self, obj: Any) -> bool:
         if not callable(obj):

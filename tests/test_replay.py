@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from stickynote.replay import StaleReplayError, ValidationMode, replay
+from stickynote.replay import StaleReplayError, ValidationMode, _replay_context, replay
 from stickynote.storage import MemoryStorage
 
 call_counts: dict[str, int] = {}
@@ -630,3 +630,60 @@ class TestReplayExceptionCaching:
             keyboard_interrupt_func()
 
         assert call_counts["kbd"] == 1  # Re-executed, not cached
+
+
+class TestReplayContextVar:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_contextvar_set_during_sync_replay(self):
+        storage = MemoryStorage()
+        observed = []
+
+        def capture_context():
+            call_counts["capture"] = call_counts.get("capture", 0) + 1
+            observed.append(_replay_context.get(None))
+            return "done"
+
+        with replay("test", storage=storage):
+            capture_context()
+
+        assert observed[0] is not None
+
+    def test_contextvar_reset_after_sync_replay(self):
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        assert _replay_context.get(None) is None
+
+    def test_contextvar_reset_after_exception(self):
+        storage = MemoryStorage()
+
+        with pytest.raises(RuntimeError), replay("test", storage=storage):
+            raise RuntimeError("boom")
+
+        assert _replay_context.get(None) is None
+
+    async def test_contextvar_set_during_async_replay(self):
+        storage = MemoryStorage()
+        observed = []
+
+        async def capture_context():
+            call_counts["capture"] = call_counts.get("capture", 0) + 1
+            observed.append(_replay_context.get(None))
+            return "done"
+
+        async with replay("test", storage=storage):
+            await capture_context()
+
+        assert observed[0] is not None
+
+    async def test_contextvar_reset_after_async_replay(self):
+        storage = MemoryStorage()
+
+        async with replay("test", storage=storage):
+            await async_fetch_data("users")
+
+        assert _replay_context.get(None) is None
