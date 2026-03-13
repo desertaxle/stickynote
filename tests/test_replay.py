@@ -2,7 +2,13 @@ import json
 
 import pytest
 
-from stickynote.replay import StaleReplayError, ValidationMode, _replay_context, replay
+from stickynote.replay import (
+    ReplayHooks,
+    StaleReplayError,
+    ValidationMode,
+    _replay_context,
+    replay,
+)
 from stickynote.storage import MemoryStorage
 
 call_counts: dict[str, int] = {}
@@ -687,3 +693,92 @@ class TestReplayContextVar:
             await async_fetch_data("users")
 
         assert _replay_context.get(None) is None
+
+
+class TestReplayHooks:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_on_cache_hit_called(self):
+        events = []
+
+        class TestHooks(ReplayHooks):
+            def on_cache_hit(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("hit", func_name, seq))
+
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage, hooks=TestHooks()):
+            fetch_data("users")
+
+        assert len(events) == 0  # First run, no hits
+
+        with replay("test", storage=storage, hooks=TestHooks()):
+            fetch_data("users")
+
+        assert len(events) == 1
+        assert events[0][0] == "hit"
+        assert events[0][1] == "fetch_data"
+
+    def test_on_cache_miss_called(self):
+        events = []
+
+        class TestHooks(ReplayHooks):
+            def on_cache_miss(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("miss", func_name, seq))
+
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage, hooks=TestHooks()):
+            fetch_data("users")
+
+        assert len(events) == 1
+        assert events[0][0] == "miss"
+
+    def test_on_exception_cached_called(self):
+        events = []
+
+        class TestHooks(ReplayHooks):
+            def on_exception_cached(self, key, seq, func_name, exc):  # noqa: ARG002
+                events.append(("exc", func_name, type(exc).__name__))
+
+        storage = MemoryStorage()
+
+        with (
+            pytest.raises(ValueError),
+            replay("test", storage=storage, hooks=TestHooks()),
+        ):
+            failing_func()
+
+        assert len(events) == 1
+        assert events[0] == ("exc", "failing_func", "ValueError")
+
+    def test_no_hooks_is_noop(self):
+        """Passing no hooks should work without errors."""
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+    async def test_async_hooks_called(self):
+        events = []
+
+        class TestHooks(ReplayHooks):
+            def on_cache_miss(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("miss", func_name))
+
+            def on_cache_hit(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("hit", func_name))
+
+        storage = MemoryStorage()
+
+        async with replay("test", storage=storage, hooks=TestHooks()):
+            await async_fetch_data("users")
+
+        assert events == [("miss", "async_fetch_data")]
+
+        events.clear()
+        async with replay("test", storage=storage, hooks=TestHooks()):
+            await async_fetch_data("users")
+
+        assert events == [("hit", "async_fetch_data")]

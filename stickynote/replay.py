@@ -31,6 +31,18 @@ class StaleReplayError(Exception):
     """Raised when a cached entry's source hash doesn't match the current function."""
 
 
+class ReplayHooks:
+    """Base class for replay observability hooks. Override only the methods you need."""
+
+    def on_cache_hit(self, key: str, seq: int, func_name: str) -> None: ...
+    def on_cache_miss(self, key: str, seq: int, func_name: str) -> None: ...
+    def on_suspend(self, key: str, seq: int, func_name: str) -> None: ...
+    def on_resume(self, identifier: str, cached_keys: int) -> None: ...
+    def on_exception_cached(
+        self, key: str, seq: int, func_name: str, exc: BaseException
+    ) -> None: ...
+
+
 _replay_context: ContextVar[replay | None] = ContextVar("_replay_context", default=None)
 
 
@@ -53,6 +65,7 @@ class replay:
         exclude: list[Callable[..., Any]] | None = None,
         validate: bool | ValidationMode = True,
         cache_exceptions: bool = True,
+        hooks: ReplayHooks | None = None,
     ):
         self.identifier = identifier
         self.storage = storage
@@ -66,6 +79,7 @@ class replay:
         self._frame_globals: dict[str, Any] | None = None
         self._inputs = Inputs()
         self._cache_exceptions = cache_exceptions
+        self._hooks = hooks
         self._context_token: Any = None
 
         if isinstance(validate, bool):
@@ -277,16 +291,23 @@ class replay:
             if envelope is not None and self._validate_entry(
                 envelope, source_hash, func_name
             ):
+                if self._hooks is not None:
+                    self._hooks.on_cache_hit(key, seq, func_name)
                 value = self._deserialize_value(envelope["data"])
                 if envelope["type"] == "exception":
                     raise value
                 return value
+
+            if self._hooks is not None:
+                self._hooks.on_cache_miss(key, seq, func_name)
 
             try:
                 result = original(*args, **kwargs)
             except Exception as exc:
                 if self._cache_exceptions:
                     self._write_cache(key, exc, "exception", source_hash)
+                    if self._hooks is not None:
+                        self._hooks.on_exception_cached(key, seq, func_name, exc)
                 raise
             else:
                 self._write_cache(key, result, "value", source_hash)
@@ -308,16 +329,23 @@ class replay:
             if envelope is not None and self._validate_entry(
                 envelope, source_hash, func_name
             ):
+                if self._hooks is not None:
+                    self._hooks.on_cache_hit(key, seq, func_name)
                 value = self._deserialize_value(envelope["data"])
                 if envelope["type"] == "exception":
                     raise value
                 return value
+
+            if self._hooks is not None:
+                self._hooks.on_cache_miss(key, seq, func_name)
 
             try:
                 result = await original(*args, **kwargs)
             except Exception as exc:
                 if self._cache_exceptions:
                     await self._write_cache_async(key, exc, "exception", source_hash)
+                    if self._hooks is not None:
+                        self._hooks.on_exception_cached(key, seq, func_name, exc)
                 raise
             else:
                 await self._write_cache_async(key, result, "value", source_hash)
