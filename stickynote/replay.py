@@ -81,6 +81,7 @@ class replay:
         self._cache_exceptions = cache_exceptions
         self._hooks = hooks
         self._context_token: Any = None
+        self._all_hits: bool = True
 
         if isinstance(validate, bool):
             self._validate = (
@@ -300,6 +301,7 @@ class replay:
 
             if self._hooks is not None:
                 self._hooks.on_cache_miss(key, seq, func_name)
+            self._all_hits = False
 
             try:
                 result = original(*args, **kwargs)
@@ -338,6 +340,7 @@ class replay:
 
             if self._hooks is not None:
                 self._hooks.on_cache_miss(key, seq, func_name)
+            self._all_hits = False
 
             try:
                 result = await original(*args, **kwargs)
@@ -352,3 +355,14 @@ class replay:
                 return result
 
         return wrapper
+
+
+def is_replaying() -> bool:
+    """Returns True if inside an active replay session where all calls so far hit cache.
+
+    Returns False if no session is active or any cache miss has occurred.
+    """
+    session = _replay_context.get(None)
+    if session is None:
+        return False
+    return session._all_hits

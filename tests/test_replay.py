@@ -7,6 +7,7 @@ from stickynote.replay import (
     StaleReplayError,
     ValidationMode,
     _replay_context,
+    is_replaying,
     replay,
 )
 from stickynote.storage import MemoryStorage
@@ -782,3 +783,94 @@ class TestReplayHooks:
             await async_fetch_data("users")
 
         assert events == [("hit", "async_fetch_data")]
+
+
+def is_replaying_cacheable() -> str:
+    """Module-level function that gets patched by replay."""
+    call_counts["is_replaying_cacheable"] = (
+        call_counts.get("is_replaying_cacheable", 0) + 1
+    )
+    return "done"
+
+
+async def async_is_replaying_cacheable() -> str:
+    """Async module-level function that gets patched by replay."""
+    call_counts["async_is_replaying_cacheable"] = (
+        call_counts.get("async_is_replaying_cacheable", 0) + 1
+    )
+    return "done"
+
+
+def is_replaying_checker() -> str:
+    """Module-level function that records is_replaying() from inside a cache miss."""
+    call_counts["checker"] = call_counts.get("checker", 0) + 1
+    return "checked"
+
+
+class TestIsReplaying:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_false_outside_replay_context(self):
+        assert is_replaying() is False
+
+    def test_false_on_first_run(self):
+        """First run has cache misses, so is_replaying() is False."""
+        storage = MemoryStorage()
+        observed = []
+
+        with replay("test", storage=storage):
+            is_replaying_cacheable()  # cache miss
+            observed.append(is_replaying())
+
+        assert observed == [False]
+
+    def test_true_on_full_replay(self):
+        """All cache hits means is_replaying() is True."""
+        storage = MemoryStorage()
+
+        # First run: populate cache
+        with replay("test", storage=storage):
+            is_replaying_cacheable()
+
+        # Full replay: all hits
+        observed = []
+        with replay("test", storage=storage):
+            is_replaying_cacheable()  # cache hit
+            observed.append(is_replaying())
+
+        assert observed == [True]
+
+    def test_transitions_to_false_on_cache_miss(self):
+        """Once a miss occurs, is_replaying() switches to False."""
+        storage = MemoryStorage()
+
+        # First run: cache is_replaying_cacheable only
+        with replay("test", storage=storage):
+            is_replaying_cacheable()
+
+        # Second run: cacheable hits cache, then checker misses
+        observed = []
+        with replay("test", storage=storage):
+            is_replaying_cacheable()  # cache hit
+            observed.append(is_replaying())  # Before checker — should be True
+            is_replaying_checker()  # Cache miss
+            observed.append(is_replaying())  # After miss — should be False
+
+        assert observed[0] is True  # Before miss
+        assert observed[1] is False  # After miss
+
+    async def test_async_is_replaying(self):
+        storage = MemoryStorage()
+
+        # First run: populate cache
+        async with replay("test", storage=storage):
+            await async_is_replaying_cacheable()
+
+        # Full replay: all hits
+        observed = []
+        async with replay("test", storage=storage):
+            await async_is_replaying_cacheable()  # cache hit
+            observed.append(is_replaying())
+
+        assert observed == [True]
