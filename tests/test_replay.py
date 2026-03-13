@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from stickynote.replay import replay
+from stickynote.replay import StaleReplayError, ValidationMode, replay
 from stickynote.storage import MemoryStorage
 
 call_counts: dict[str, int] = {}
@@ -406,3 +406,123 @@ class TestReplayEnvelopeFormat:
                 except Exception:
                     continue
             assert deserialized == {"source": "users", "data": [1, 2, 3]}
+
+
+class TestReplayValidation:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_stale_replay_error_on_source_change(self):
+        """ENABLED mode raises StaleReplayError when source hash mismatches."""
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage, validate=ValidationMode.ENABLED):
+            fetch_data("users")
+
+        # Tamper with the source hash in storage to simulate source change
+        for key, value in storage.cache.items():
+            envelope = json.loads(value)
+            envelope["source_hash"] = "0" * 64
+            storage.cache[key] = json.dumps(envelope)
+
+        with (
+            pytest.raises(StaleReplayError),
+            replay("test", storage=storage, validate=ValidationMode.ENABLED),
+        ):
+            fetch_data("users")
+
+    def test_warn_mode_treats_mismatch_as_cache_miss(self):
+        """WARN mode logs and re-executes instead of raising."""
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        assert call_counts["fetch_data"] == 1
+
+        # Tamper with the source hash
+        for key, value in storage.cache.items():
+            envelope = json.loads(value)
+            envelope["source_hash"] = "0" * 64
+            storage.cache[key] = json.dumps(envelope)
+
+        call_counts.clear()
+        with replay("test", storage=storage, validate=ValidationMode.WARN):
+            fetch_data("users")
+
+        assert call_counts["fetch_data"] == 1  # Re-executed (cache miss)
+
+    def test_disabled_mode_ignores_mismatch(self):
+        """DISABLED mode returns cached value regardless."""
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage):
+            data = fetch_data("users")
+
+        # Tamper with the source hash
+        for key, value in storage.cache.items():
+            envelope = json.loads(value)
+            envelope["source_hash"] = "0" * 64
+            storage.cache[key] = json.dumps(envelope)
+
+        call_counts.clear()
+        with replay("test", storage=storage, validate=ValidationMode.DISABLED):
+            data = fetch_data("users")
+
+        assert call_counts.get("fetch_data", 0) == 0  # Cached (no validation)
+        assert data == {"source": "users", "data": [1, 2, 3]}
+
+    def test_validate_true_maps_to_enabled(self):
+        """validate=True is shorthand for ValidationMode.ENABLED."""
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage, validate=True):
+            fetch_data("users")
+
+        for key, value in storage.cache.items():
+            envelope = json.loads(value)
+            envelope["source_hash"] = "0" * 64
+            storage.cache[key] = json.dumps(envelope)
+
+        with (
+            pytest.raises(StaleReplayError),
+            replay("test", storage=storage, validate=True),
+        ):
+            fetch_data("users")
+
+    def test_validate_false_maps_to_disabled(self):
+        """validate=False is shorthand for ValidationMode.DISABLED."""
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        for key, value in storage.cache.items():
+            envelope = json.loads(value)
+            envelope["source_hash"] = "0" * 64
+            storage.cache[key] = json.dumps(envelope)
+
+        call_counts.clear()
+        with replay("test", storage=storage, validate=False):
+            fetch_data("users")
+
+        assert call_counts.get("fetch_data", 0) == 0
+
+    def test_empty_source_hash_skips_validation(self):
+        """When source hash can't be computed, validation is skipped."""
+        storage = MemoryStorage()
+
+        # Store an entry with empty source_hash
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        for key, value in storage.cache.items():
+            envelope = json.loads(value)
+            envelope["source_hash"] = ""
+            storage.cache[key] = json.dumps(envelope)
+
+        call_counts.clear()
+        with replay("test", storage=storage, validate=ValidationMode.ENABLED):
+            fetch_data("users")
+
+        assert call_counts.get("fetch_data", 0) == 0  # Cached, validation skipped

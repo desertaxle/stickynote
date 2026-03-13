@@ -4,8 +4,10 @@ import functools
 import hashlib
 import inspect
 import json
+import logging
 import sys
 from collections.abc import Callable, Iterable
+from enum import Enum
 from typing import Any
 
 from exceptiongroup import ExceptionGroup
@@ -14,6 +16,18 @@ from stickynote.key_strategies import Inputs
 from stickynote.serializers import DEFAULT_SERIALIZER_CHAIN, Serializer
 from stickynote.storage import DEFAULT_STORAGE, MemoStorage
 from stickynote.storage.base import MissingMemoError
+
+logger: logging.Logger = logging.getLogger("stickynote.replay")
+
+
+class ValidationMode(Enum):
+    ENABLED = "enabled"
+    WARN = "warn"
+    DISABLED = "disabled"
+
+
+class StaleReplayError(Exception):
+    """Raised when a cached entry's source hash doesn't match the current function."""
 
 
 def _is_stdlib_module(module_name: str) -> bool:
@@ -33,6 +47,7 @@ class replay:
         storage: MemoStorage = DEFAULT_STORAGE,
         serializer: Serializer | Iterable[Serializer] = DEFAULT_SERIALIZER_CHAIN,
         exclude: list[Callable[..., Any]] | None = None,
+        validate: bool | ValidationMode = True,
     ):
         self.identifier = identifier
         self.storage = storage
@@ -45,6 +60,13 @@ class replay:
         self._originals: dict[str, Any] = {}
         self._frame_globals: dict[str, Any] | None = None
         self._inputs = Inputs()
+
+        if isinstance(validate, bool):
+            self._validate = (
+                ValidationMode.ENABLED if validate else ValidationMode.DISABLED
+            )
+        else:
+            self._validate = validate
 
     def __enter__(self) -> replay:
         frame = inspect.currentframe()
@@ -198,6 +220,34 @@ class replay:
         envelope = json.dumps({"type": type_, "data": data, "source_hash": source_hash})
         await self.storage.set_async(key, envelope)
 
+    def _validate_entry(
+        self, envelope: dict[str, str], source_hash: str, func_name: str
+    ) -> bool:
+        """Validate source hash of a cache entry. Returns True if entry is valid.
+
+        In ENABLED mode, raises StaleReplayError on mismatch.
+        In WARN mode, logs a warning and returns False (treat as cache miss).
+        In DISABLED mode, always returns True.
+        """
+        if self._validate == ValidationMode.DISABLED:
+            return True
+        stored_hash = envelope.get("source_hash", "")
+        if not stored_hash or not source_hash:
+            return True
+        if stored_hash == source_hash:
+            return True
+        if self._validate == ValidationMode.ENABLED:
+            raise StaleReplayError(
+                f"Cached entry for {func_name!r} has stale source hash "
+                f"(stored={stored_hash[:8]}..., current={source_hash[:8]}...)"
+            )
+        # WARN mode
+        logger.warning(
+            "Stale cache entry for %r (source hash mismatch), re-executing",
+            func_name,
+        )
+        return False
+
     def _make_sync_wrapper(
         self, name: str, original: Callable[..., Any]
     ) -> Callable[..., Any]:
@@ -205,12 +255,15 @@ class replay:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             seq = self._next_seq()
             key = self._build_key(name, seq, original, args, kwargs)
+            source_hash = self._compute_source_hash(original)
+            func_name = getattr(original, "__qualname__", name)
 
             envelope = self._read_cache(key)
-            if envelope is not None:
+            if envelope is not None and self._validate_entry(
+                envelope, source_hash, func_name
+            ):
                 return self._deserialize_value(envelope["data"])
 
-            source_hash = self._compute_source_hash(original)
             result = original(*args, **kwargs)
             self._write_cache(key, result, "value", source_hash)
             return result
@@ -224,12 +277,15 @@ class replay:
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             seq = self._next_seq()
             key = self._build_key(name, seq, original, args, kwargs)
+            source_hash = self._compute_source_hash(original)
+            func_name = getattr(original, "__qualname__", name)
 
             envelope = await self._read_cache_async(key)
-            if envelope is not None:
+            if envelope is not None and self._validate_entry(
+                envelope, source_hash, func_name
+            ):
                 return self._deserialize_value(envelope["data"])
 
-            source_hash = self._compute_source_hash(original)
             result = await original(*args, **kwargs)
             await self._write_cache_async(key, result, "value", source_hash)
             return result
