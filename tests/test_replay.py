@@ -1338,3 +1338,26 @@ class TestReplayTime:
 
         with replay("test", storage=storage):
             use_time()
+
+
+class TestPublicAPI:
+    def test_all_exports_importable(self):
+        from stickynote import (
+            ReplayHooks,
+            StaleReplayError,
+            SuspendExecution,
+            ValidationMode,
+            is_replaying,
+            replay,
+            replay_time,
+            replayable,
+        )
+
+        assert replay is not None
+        assert replayable is not None
+        assert SuspendExecution is not None
+        assert StaleReplayError is not None
+        assert ReplayHooks is not None
+        assert ValidationMode is not None
+        assert is_replaying is not None
+        assert replay_time is not None
