@@ -361,3 +361,48 @@ class TestReplayEdgeCases:
 
         assert result == "done"
         assert call_counts["fn_with_unhashable"] == 1
+
+
+class TestReplayEnvelopeFormat:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_stores_json_envelope(self):
+        storage = MemoryStorage()
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        for value in storage.cache.values():
+            envelope = json.loads(value)
+            assert envelope["type"] == "value"
+            assert "data" in envelope
+            assert "source_hash" in envelope
+
+    def test_source_hash_is_sha256_hex(self):
+        storage = MemoryStorage()
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        for value in storage.cache.values():
+            envelope = json.loads(value)
+            source_hash = envelope["source_hash"]
+            assert len(source_hash) == 64
+            assert all(c in "0123456789abcdef" for c in source_hash)
+
+    def test_envelope_data_is_deserializable(self):
+        from stickynote.serializers import DEFAULT_SERIALIZER_CHAIN
+
+        storage = MemoryStorage()
+        with replay("test", storage=storage):
+            fetch_data("users")
+
+        for value in storage.cache.values():
+            envelope = json.loads(value)
+            deserialized = None
+            for s in DEFAULT_SERIALIZER_CHAIN:
+                try:
+                    deserialized = s.deserialize(envelope["data"])
+                    break
+                except Exception:
+                    continue
+            assert deserialized == {"source": "users", "data": [1, 2, 3]}

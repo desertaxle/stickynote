@@ -3,14 +3,17 @@ from __future__ import annotations
 import functools
 import hashlib
 import inspect
+import json
 import sys
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from exceptiongroup import ExceptionGroup
+
 from stickynote.key_strategies import Inputs
-from stickynote.memoize import AsyncMemoBlock, MemoBlock
 from stickynote.serializers import DEFAULT_SERIALIZER_CHAIN, Serializer
 from stickynote.storage import DEFAULT_STORAGE, MemoStorage
+from stickynote.storage.base import MissingMemoError
 
 
 def _is_stdlib_module(module_name: str) -> bool:
@@ -113,6 +116,88 @@ class replay:
         raw_key = f"{self.identifier}:{seq}:{qualname}:{args_hash}"
         return hashlib.sha256(raw_key.encode()).hexdigest()
 
+    def _compute_source_hash(self, func: Callable[..., Any]) -> str:
+        """Compute SHA-256 hash of function source code."""
+        try:
+            source = inspect.getsource(func)
+            return hashlib.sha256(source.encode()).hexdigest()
+        except (OSError, TypeError):
+            return ""
+
+    def _serialize_value(self, value: Any) -> str:
+        """Serialize a value using the first successful serializer in the chain."""
+        exceptions: list[Exception] = []
+        for s in self.serializer:
+            try:
+                return s.serialize(value)
+            except Exception as e:
+                exceptions.append(e)
+        raise ExceptionGroup(
+            "All serializers failed to serialize the result.", exceptions
+        )
+
+    def _deserialize_value(self, data: str) -> Any:
+        """Deserialize a value using the first successful serializer in the chain."""
+        exceptions: list[Exception] = []
+        for s in self.serializer:
+            try:
+                return s.deserialize(data)
+            except Exception as e:
+                exceptions.append(e)
+        raise ExceptionGroup(
+            "All serializers failed to deserialize the result.", exceptions
+        )
+
+    def _read_cache(self, key: str) -> dict[str, str] | None:
+        """Read and parse a cache envelope. Returns the envelope dict or None."""
+        if not self.storage.exists(key):
+            return None
+        try:
+            raw = self.storage.get(key)
+        except MissingMemoError:
+            return None
+        try:
+            envelope = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if isinstance(envelope, dict) and all(
+            k in envelope for k in ("type", "data", "source_hash")
+        ):
+            return envelope
+        return None
+
+    async def _read_cache_async(self, key: str) -> dict[str, str] | None:
+        """Async version of _read_cache."""
+        if not await self.storage.exists_async(key):
+            return None
+        try:
+            raw = await self.storage.get_async(key)
+        except MissingMemoError:
+            return None
+        try:
+            envelope = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if isinstance(envelope, dict) and all(
+            k in envelope for k in ("type", "data", "source_hash")
+        ):
+            return envelope
+        return None
+
+    def _write_cache(self, key: str, value: Any, type_: str, source_hash: str) -> None:
+        """Serialize value, wrap in JSON envelope, write to storage."""
+        data = self._serialize_value(value)
+        envelope = json.dumps({"type": type_, "data": data, "source_hash": source_hash})
+        self.storage.set(key, envelope)
+
+    async def _write_cache_async(
+        self, key: str, value: Any, type_: str, source_hash: str
+    ) -> None:
+        """Async version of _write_cache."""
+        data = self._serialize_value(value)
+        envelope = json.dumps({"type": type_, "data": data, "source_hash": source_hash})
+        await self.storage.set_async(key, envelope)
+
     def _make_sync_wrapper(
         self, name: str, original: Callable[..., Any]
     ) -> Callable[..., Any]:
@@ -121,14 +206,14 @@ class replay:
             seq = self._next_seq()
             key = self._build_key(name, seq, original, args, kwargs)
 
-            with MemoBlock(
-                key=key, storage=self.storage, serializer=self.serializer
-            ) as memo:
-                if memo.hit:
-                    return memo.value
-                result = original(*args, **kwargs)
-                memo.stage(result)
-                return result
+            envelope = self._read_cache(key)
+            if envelope is not None:
+                return self._deserialize_value(envelope["data"])
+
+            source_hash = self._compute_source_hash(original)
+            result = original(*args, **kwargs)
+            self._write_cache(key, result, "value", source_hash)
+            return result
 
         return wrapper
 
@@ -140,13 +225,13 @@ class replay:
             seq = self._next_seq()
             key = self._build_key(name, seq, original, args, kwargs)
 
-            async with AsyncMemoBlock(
-                key=key, storage=self.storage, serializer=self.serializer
-            ) as memo:
-                if memo.hit:
-                    return memo.value
-                result = await original(*args, **kwargs)
-                memo.stage(result)
-                return result
+            envelope = await self._read_cache_async(key)
+            if envelope is not None:
+                return self._deserialize_value(envelope["data"])
+
+            source_hash = self._compute_source_hash(original)
+            result = await original(*args, **kwargs)
+            await self._write_cache_async(key, result, "value", source_hash)
+            return result
 
         return wrapper
