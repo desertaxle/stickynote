@@ -21,6 +21,19 @@ from stickynote.storage.base import MissingMemoError
 logger: logging.Logger = logging.getLogger("stickynote.replay")
 
 
+class SuspendExecution(BaseException):
+    """Raised by a wrapped function to signal that execution should pause.
+
+    The ``key`` and ``source_hash`` attributes are set by the replay wrapper
+    before re-raising, not by the code that constructs the exception.
+    """
+
+    def __init__(self, reason: str = ""):
+        super().__init__(reason)
+        self.key: str | None = None
+        self.source_hash: str | None = None
+
+
 class ValidationMode(Enum):
     ENABLED = "enabled"
     WARN = "warn"
@@ -83,6 +96,7 @@ class replay:
         self._context_token: Any = None
         self._all_hits: bool = True
         self._keys: list[str] = []
+        self._suspended: bool = False
 
         if isinstance(validate, bool):
             self._validate = (
@@ -170,11 +184,24 @@ class replay:
         self._patch()
         return self
 
-    def __exit__(self, *args: Any) -> None:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self._unpatch()
         if self._context_token is not None:
             _replay_context.reset(self._context_token)
             self._context_token = None
+        if isinstance(exc_val, SuspendExecution) and not self._suspended:
+            # SuspendExecution raised from an unpatched (local) function — handle here
+            if exc_val.key is None:
+                seq = self._next_seq()
+                key = hashlib.sha256(
+                    f"{self.identifier}:{seq}:__suspend__".encode()
+                ).hexdigest()
+                exc_val.key = key
+                exc_val.source_hash = ""
+            self._track_key(exc_val.key)
+            self._suspended = True
+            if self._hooks is not None:
+                self._hooks.on_suspend(exc_val.key, self._seq, "__suspend__")
 
     async def __aenter__(self) -> replay:
         frame = inspect.currentframe()
@@ -185,11 +212,24 @@ class replay:
         self._patch()
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self._unpatch()
         if self._context_token is not None:
             _replay_context.reset(self._context_token)
             self._context_token = None
+        if isinstance(exc_val, SuspendExecution) and not self._suspended:
+            # SuspendExecution raised from an unpatched (local) function — handle here
+            if exc_val.key is None:
+                seq = self._next_seq()
+                key = hashlib.sha256(
+                    f"{self.identifier}:{seq}:__suspend__".encode()
+                ).hexdigest()
+                exc_val.key = key
+                exc_val.source_hash = ""
+            await self._track_key_async(exc_val.key)
+            self._suspended = True
+            if self._hooks is not None:
+                self._hooks.on_suspend(exc_val.key, self._seq, "__suspend__")
 
     def _should_patch(self, obj: Any) -> bool:
         if not callable(obj):
@@ -380,6 +420,15 @@ class replay:
 
             try:
                 result = original(*args, **kwargs)
+            except SuspendExecution as exc:
+                if exc.key is None:
+                    exc.key = key
+                    exc.source_hash = source_hash
+                self._suspended = True
+                self._track_key(key)  # Pre-register pending key
+                if self._hooks is not None:
+                    self._hooks.on_suspend(key, seq, func_name)
+                raise
             except Exception as exc:
                 if self._cache_exceptions:
                     self._write_cache(key, exc, "exception", source_hash)
@@ -419,6 +468,15 @@ class replay:
 
             try:
                 result = await original(*args, **kwargs)
+            except SuspendExecution as exc:
+                if exc.key is None:
+                    exc.key = key
+                    exc.source_hash = source_hash
+                self._suspended = True
+                await self._track_key_async(key)  # Pre-register pending key
+                if self._hooks is not None:
+                    self._hooks.on_suspend(key, seq, func_name)
+                raise
             except Exception as exc:
                 if self._cache_exceptions:
                     await self._write_cache_async(key, exc, "exception", source_hash)
@@ -488,6 +546,15 @@ def replayable(func: Callable[..., Any]) -> Callable[..., Any]:
 
             try:
                 result = await func(*args, **kwargs)
+            except SuspendExecution as exc:
+                if exc.key is None:
+                    exc.key = key
+                    exc.source_hash = source_hash
+                session._suspended = True
+                await session._track_key_async(key)  # Pre-register pending key
+                if session._hooks is not None:
+                    session._hooks.on_suspend(key, seq, func_name)
+                raise
             except Exception as exc:
                 if session._cache_exceptions:
                     await session._write_cache_async(key, exc, "exception", source_hash)
@@ -528,6 +595,15 @@ def replayable(func: Callable[..., Any]) -> Callable[..., Any]:
 
         try:
             result = func(*args, **kwargs)
+        except SuspendExecution as exc:
+            if exc.key is None:
+                exc.key = key
+                exc.source_hash = source_hash
+            session._suspended = True
+            session._track_key(key)  # Pre-register pending key
+            if session._hooks is not None:
+                session._hooks.on_suspend(key, seq, func_name)
+            raise
         except Exception as exc:
             if session._cache_exceptions:
                 session._write_cache(key, exc, "exception", source_hash)

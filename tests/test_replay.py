@@ -6,6 +6,7 @@ import pytest
 from stickynote.replay import (
     ReplayHooks,
     StaleReplayError,
+    SuspendExecution,
     ValidationMode,
     _replay_context,
     is_replaying,
@@ -1044,3 +1045,121 @@ class TestReplayKeyTracking:
 
         assert len(key_list_after_first) == 1
         assert len(key_list_after_second) == 2
+
+
+class TestSuspendExecution:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_suspend_propagates_with_key(self):
+        storage = MemoryStorage()
+
+        def suspending_func():
+            call_counts["suspend"] = call_counts.get("suspend", 0) + 1
+            raise SuspendExecution("waiting for response")
+
+        with (
+            pytest.raises(SuspendExecution) as exc_info,
+            replay("test", storage=storage),
+        ):
+            suspending_func()
+
+        assert exc_info.value.key is not None
+        assert exc_info.value.source_hash is not None
+        assert len(exc_info.value.key) == 64  # SHA-256 hex
+        assert isinstance(exc_info.value.key, str)
+
+    def test_suspend_not_cached(self):
+        storage = MemoryStorage()
+
+        def suspending_func():
+            call_counts["suspend"] = call_counts.get("suspend", 0) + 1
+            raise SuspendExecution("waiting")
+
+        with pytest.raises(SuspendExecution), replay("test", storage=storage):
+            suspending_func()
+
+        # SuspendExecution should not be cached
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        data_keys = [k for k in storage.cache if k != keys_key]
+        assert len(data_keys) == 0
+
+    def test_suspend_key_set_only_once(self):
+        """Innermost wrapper sets key, outer wrappers don't overwrite."""
+        storage = MemoryStorage()
+
+        @replayable
+        def inner_suspend():
+            call_counts["inner"] = call_counts.get("inner", 0) + 1
+            raise SuspendExecution("waiting")
+
+        with (
+            pytest.raises(SuspendExecution) as exc_info,
+            replay("test", storage=storage),
+        ):
+            inner_suspend()
+
+        assert exc_info.value.key is not None
+
+    def test_suspend_pre_registers_pending_key(self):
+        """Pending key appears in key list even though no value was cached."""
+        storage = MemoryStorage()
+
+        def suspending_func():
+            raise SuspendExecution("waiting")
+
+        with pytest.raises(SuspendExecution), replay("test", storage=storage):
+            suspending_func()
+
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        assert storage.exists(keys_key)
+        key_list = json.loads(storage.get(keys_key))
+        assert len(key_list) == 1  # Pre-registered pending key
+
+    def test_suspended_session_skips_key_list_write_on_exit(self):
+        storage = MemoryStorage()
+
+        def suspending_func():
+            raise SuspendExecution("waiting")
+
+        with pytest.raises(SuspendExecution), replay("test", storage=storage):
+            fetch_data("users")
+            suspending_func()
+
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        key_list = json.loads(storage.get(keys_key))
+        assert len(key_list) == 2  # fetch_data key + pending suspend key
+
+    async def test_async_suspend(self):
+        storage = MemoryStorage()
+
+        async def async_suspend():
+            call_counts["async_suspend"] = call_counts.get("async_suspend", 0) + 1
+            raise SuspendExecution("waiting")
+
+        with pytest.raises(SuspendExecution) as exc_info:
+            async with replay("test", storage=storage):
+                await async_suspend()
+
+        assert exc_info.value.key is not None
+
+    def test_on_suspend_hook_called(self):
+        events = []
+
+        class TestHooks(ReplayHooks):
+            def on_suspend(self, key, seq, func_name):  # noqa: ARG002
+                events.append(("suspend", func_name, seq))
+
+        storage = MemoryStorage()
+
+        def suspending_func():
+            raise SuspendExecution("waiting")
+
+        with (
+            pytest.raises(SuspendExecution),
+            replay("test", storage=storage, hooks=TestHooks()),
+        ):
+            suspending_func()
+
+        assert len(events) == 1
+        assert events[0][0] == "suspend"
