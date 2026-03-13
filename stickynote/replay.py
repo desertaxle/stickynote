@@ -82,6 +82,7 @@ class replay:
         self._hooks = hooks
         self._context_token: Any = None
         self._all_hits: bool = True
+        self._keys: list[str] = []
 
         if isinstance(validate, bool):
             self._validate = (
@@ -90,11 +91,82 @@ class replay:
         else:
             self._validate = validate
 
+    def _keys_storage_key(self) -> str:
+        """Compute the storage key for the session's key list."""
+        return hashlib.sha256(f"{self.identifier}:__keys__".encode()).hexdigest()
+
+    def _track_key(self, key: str) -> None:
+        """Track a key and update the key list in storage."""
+        self._keys.append(key)
+        keys_key = self._keys_storage_key()
+        self.storage.set(keys_key, json.dumps(self._keys))
+
+    async def _track_key_async(self, key: str) -> None:
+        """Async version of _track_key."""
+        self._keys.append(key)
+        keys_key = self._keys_storage_key()
+        await self.storage.set_async(keys_key, json.dumps(self._keys))
+
+    def _load_existing_keys(self) -> None:
+        """Load existing key list from storage if resuming a session."""
+        keys_key = self._keys_storage_key()
+        if self.storage.exists(keys_key):
+            try:
+                self._keys = json.loads(self.storage.get(keys_key))
+                if self._hooks is not None and self._keys:
+                    self._hooks.on_resume(self.identifier, len(self._keys))
+            except (MissingMemoError, json.JSONDecodeError):
+                self._keys = []
+        else:
+            self._keys = []
+
+    async def _load_existing_keys_async(self) -> None:
+        """Async version of _load_existing_keys."""
+        keys_key = self._keys_storage_key()
+        if await self.storage.exists_async(keys_key):
+            try:
+                self._keys = json.loads(await self.storage.get_async(keys_key))
+                if self._hooks is not None and self._keys:
+                    self._hooks.on_resume(self.identifier, len(self._keys))
+            except (MissingMemoError, json.JSONDecodeError):
+                self._keys = []
+        else:
+            self._keys = []
+
+    @classmethod
+    def cleanup(cls, identifier: str, storage: MemoStorage) -> None:
+        """Delete all cached data for a session using the stored key list."""
+        keys_key = hashlib.sha256(f"{identifier}:__keys__".encode()).hexdigest()
+        if not storage.exists(keys_key):
+            return
+        try:
+            key_list = json.loads(storage.get(keys_key))
+        except (MissingMemoError, json.JSONDecodeError):
+            return
+        for key in key_list:
+            storage.delete(key)
+        storage.delete(keys_key)
+
+    @classmethod
+    async def cleanup_async(cls, identifier: str, storage: MemoStorage) -> None:
+        """Async version of cleanup."""
+        keys_key = hashlib.sha256(f"{identifier}:__keys__".encode()).hexdigest()
+        if not await storage.exists_async(keys_key):
+            return
+        try:
+            key_list = json.loads(await storage.get_async(keys_key))
+        except (MissingMemoError, json.JSONDecodeError):
+            return
+        for key in key_list:
+            await storage.delete_async(key)
+        await storage.delete_async(keys_key)
+
     def __enter__(self) -> replay:
         frame = inspect.currentframe()
         assert frame is not None and frame.f_back is not None
         self._frame_globals = frame.f_back.f_globals
         self._context_token = _replay_context.set(self)
+        self._load_existing_keys()
         self._patch()
         return self
 
@@ -109,6 +181,7 @@ class replay:
         assert frame is not None and frame.f_back is not None
         self._frame_globals = frame.f_back.f_globals
         self._context_token = _replay_context.set(self)
+        await self._load_existing_keys_async()
         self._patch()
         return self
 
@@ -237,10 +310,11 @@ class replay:
         return None
 
     def _write_cache(self, key: str, value: Any, type_: str, source_hash: str) -> None:
-        """Serialize value, wrap in JSON envelope, write to storage."""
+        """Serialize value, wrap in JSON envelope, write to storage, track key."""
         data = self._serialize_value(value)
         envelope = json.dumps({"type": type_, "data": data, "source_hash": source_hash})
         self.storage.set(key, envelope)
+        self._track_key(key)
 
     async def _write_cache_async(
         self, key: str, value: Any, type_: str, source_hash: str
@@ -249,6 +323,7 @@ class replay:
         data = self._serialize_value(value)
         envelope = json.dumps({"type": type_, "data": data, "source_hash": source_hash})
         await self.storage.set_async(key, envelope)
+        await self._track_key_async(key)
 
     def _validate_entry(
         self, envelope: dict[str, str], source_hash: str, func_name: str

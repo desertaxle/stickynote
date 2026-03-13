@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -395,7 +396,10 @@ class TestReplayEnvelopeFormat:
         with replay("test", storage=storage):
             fetch_data("users")
 
-        for value in storage.cache.values():
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        for key, value in storage.cache.items():
+            if key == keys_key:
+                continue
             envelope = json.loads(value)
             assert envelope["type"] == "value"
             assert "data" in envelope
@@ -406,7 +410,10 @@ class TestReplayEnvelopeFormat:
         with replay("test", storage=storage):
             fetch_data("users")
 
-        for value in storage.cache.values():
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        for key, value in storage.cache.items():
+            if key == keys_key:
+                continue
             envelope = json.loads(value)
             source_hash = envelope["source_hash"]
             assert len(source_hash) == 64
@@ -419,7 +426,10 @@ class TestReplayEnvelopeFormat:
         with replay("test", storage=storage):
             fetch_data("users")
 
-        for value in storage.cache.values():
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        for key, value in storage.cache.items():
+            if key == keys_key:
+                continue
             envelope = json.loads(value)
             deserialized = None
             for s in DEFAULT_SERIALIZER_CHAIN:
@@ -445,6 +455,8 @@ class TestReplayValidation:
         # Tamper with the source hash in storage to simulate source change
         for key, value in storage.cache.items():
             envelope = json.loads(value)
+            if not isinstance(envelope, dict):
+                continue
             envelope["source_hash"] = "0" * 64
             storage.cache[key] = json.dumps(envelope)
 
@@ -466,6 +478,8 @@ class TestReplayValidation:
         # Tamper with the source hash
         for key, value in storage.cache.items():
             envelope = json.loads(value)
+            if not isinstance(envelope, dict):
+                continue
             envelope["source_hash"] = "0" * 64
             storage.cache[key] = json.dumps(envelope)
 
@@ -485,6 +499,8 @@ class TestReplayValidation:
         # Tamper with the source hash
         for key, value in storage.cache.items():
             envelope = json.loads(value)
+            if not isinstance(envelope, dict):
+                continue
             envelope["source_hash"] = "0" * 64
             storage.cache[key] = json.dumps(envelope)
 
@@ -504,6 +520,8 @@ class TestReplayValidation:
 
         for key, value in storage.cache.items():
             envelope = json.loads(value)
+            if not isinstance(envelope, dict):
+                continue
             envelope["source_hash"] = "0" * 64
             storage.cache[key] = json.dumps(envelope)
 
@@ -522,6 +540,8 @@ class TestReplayValidation:
 
         for key, value in storage.cache.items():
             envelope = json.loads(value)
+            if not isinstance(envelope, dict):
+                continue
             envelope["source_hash"] = "0" * 64
             storage.cache[key] = json.dumps(envelope)
 
@@ -541,6 +561,8 @@ class TestReplayValidation:
 
         for key, value in storage.cache.items():
             envelope = json.loads(value)
+            if not isinstance(envelope, dict):
+                continue
             envelope["source_hash"] = ""
             storage.cache[key] = json.dumps(envelope)
 
@@ -582,7 +604,10 @@ class TestReplayExceptionCaching:
         with pytest.raises(ValueError), replay("test", storage=storage):
             failing_func()
 
-        for value in storage.cache.values():
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        for key, value in storage.cache.items():
+            if key == keys_key:
+                continue
             envelope = json.loads(value)
             assert envelope["type"] == "exception"
 
@@ -959,3 +984,63 @@ class TestReplayable:
         wrapped = replayable_fetch.__wrapped__
         result = wrapped("test")  # type: ignore[operator]
         assert result == {"source": "test", "data": [1, 2, 3]}
+
+
+class TestReplayKeyTracking:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_keys_tracked_in_storage(self):
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage):
+            fetch_data("users")
+            process({"data": 1})
+
+        # Key list should be stored in storage under hashed __keys__ key
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+        assert storage.exists(keys_key)
+        key_list = json.loads(storage.get(keys_key))
+        assert len(key_list) == 2
+
+    def test_cleanup_removes_all_data(self):
+        storage = MemoryStorage()
+
+        with replay("test", storage=storage):
+            fetch_data("users")
+            process({"data": 1})
+
+        assert len(storage.cache) > 0
+
+        replay.cleanup("test", storage=storage)
+
+        assert len(storage.cache) == 0
+
+    async def test_cleanup_async(self):
+        storage = MemoryStorage()
+
+        async with replay("test", storage=storage):
+            await async_fetch_data("users")
+
+        assert len(storage.cache) > 0
+
+        await replay.cleanup_async("test", storage=storage)
+
+        assert len(storage.cache) == 0
+
+    def test_cleanup_nonexistent_session_is_noop(self):
+        storage = MemoryStorage()
+        replay.cleanup("nonexistent", storage=storage)  # Should not raise
+
+    def test_key_list_updated_incrementally(self):
+        storage = MemoryStorage()
+        keys_key = hashlib.sha256(b"test:__keys__").hexdigest()
+
+        with replay("test", storage=storage):
+            fetch_data("users")
+            key_list_after_first = json.loads(storage.get(keys_key))
+            fetch_data("orders")
+            key_list_after_second = json.loads(storage.get(keys_key))
+
+        assert len(key_list_after_first) == 1
+        assert len(key_list_after_second) == 2
