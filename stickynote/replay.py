@@ -100,6 +100,7 @@ class replay:
         self._suspended: bool = False
         self._deterministic_time = deterministic_time
         self._time_seq: int = 0
+        self._keys_key: str = self._compute_keys_key(identifier)
 
         if isinstance(validate, bool):
             self._validate = (
@@ -132,25 +133,26 @@ class replay:
         except (MissingMemoError, json.JSONDecodeError):
             return seq, None
 
-    def _keys_storage_key(self) -> str:
-        """Compute the storage key for the session's key list."""
-        return hashlib.sha256(f"{self.identifier}:__keys__".encode()).hexdigest()
+    @staticmethod
+    def _compute_keys_key(identifier: str) -> str:
+        """Compute the storage key for a session's key list."""
+        return hashlib.sha256(f"{identifier}:__keys__".encode()).hexdigest()
 
     def _track_key(self, key: str) -> None:
         """Track a key and update the key list in storage."""
         self._keys.append(key)
-        keys_key = self._keys_storage_key()
+        keys_key = self._keys_key
         self.storage.set(keys_key, json.dumps(self._keys))
 
     async def _track_key_async(self, key: str) -> None:
         """Async version of _track_key."""
         self._keys.append(key)
-        keys_key = self._keys_storage_key()
+        keys_key = self._keys_key
         await self.storage.set_async(keys_key, json.dumps(self._keys))
 
     def _load_existing_keys(self) -> None:
         """Load existing key list from storage if resuming a session."""
-        keys_key = self._keys_storage_key()
+        keys_key = self._keys_key
         if self.storage.exists(keys_key):
             try:
                 self._keys = json.loads(self.storage.get(keys_key))
@@ -163,7 +165,7 @@ class replay:
 
     async def _load_existing_keys_async(self) -> None:
         """Async version of _load_existing_keys."""
-        keys_key = self._keys_storage_key()
+        keys_key = self._keys_key
         if await self.storage.exists_async(keys_key):
             try:
                 self._keys = json.loads(await self.storage.get_async(keys_key))
@@ -177,7 +179,7 @@ class replay:
     @classmethod
     def cleanup(cls, identifier: str, storage: MemoStorage) -> None:
         """Delete all cached data for a session using the stored key list."""
-        keys_key = hashlib.sha256(f"{identifier}:__keys__".encode()).hexdigest()
+        keys_key = cls._compute_keys_key(identifier)
         if not storage.exists(keys_key):
             return
         try:
@@ -191,7 +193,7 @@ class replay:
     @classmethod
     async def cleanup_async(cls, identifier: str, storage: MemoStorage) -> None:
         """Async version of cleanup."""
-        keys_key = hashlib.sha256(f"{identifier}:__keys__".encode()).hexdigest()
+        keys_key = cls._compute_keys_key(identifier)
         if not await storage.exists_async(keys_key):
             return
         try:
@@ -409,8 +411,6 @@ class replay:
 
     def _read_cache(self, key: str) -> dict[str, str] | None:
         """Read and parse a cache envelope. Returns the envelope dict or None."""
-        if not self.storage.exists(key):
-            return None
         try:
             raw = self.storage.get(key)
         except MissingMemoError:
@@ -427,8 +427,6 @@ class replay:
 
     async def _read_cache_async(self, key: str) -> dict[str, str] | None:
         """Async version of _read_cache."""
-        if not await self.storage.exists_async(key):
-            return None
         try:
             raw = await self.storage.get_async(key)
         except MissingMemoError:
@@ -490,12 +488,13 @@ class replay:
     def _make_sync_wrapper(
         self, name: str, original: Callable[..., Any]
     ) -> Callable[..., Any]:
+        source_hash = self._compute_source_hash(original)
+        func_name = getattr(original, "__qualname__", name)
+
         @functools.wraps(original)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             seq = self._next_seq()
             key = self._build_key(name, seq, original, args, kwargs)
-            source_hash = self._compute_source_hash(original)
-            func_name = getattr(original, "__qualname__", name)
 
             envelope = self._read_cache(key)
             if envelope is not None and self._validate_entry(
@@ -542,12 +541,13 @@ class replay:
     def _make_async_wrapper(
         self, name: str, original: Callable[..., Any]
     ) -> Callable[..., Any]:
+        source_hash = self._compute_source_hash(original)
+        func_name = getattr(original, "__qualname__", name)
+
         @functools.wraps(original)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             seq = self._next_seq()
             key = self._build_key(name, seq, original, args, kwargs)
-            source_hash = self._compute_source_hash(original)
-            func_name = getattr(original, "__qualname__", name)
 
             envelope = await self._read_cache_async(key)
             if envelope is not None and self._validate_entry(
