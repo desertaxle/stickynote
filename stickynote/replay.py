@@ -79,6 +79,7 @@ class replay:
         validate: bool | ValidationMode = True,
         cache_exceptions: bool = True,
         hooks: ReplayHooks | None = None,
+        deterministic_time: bool = False,
     ):
         self.identifier = identifier
         self.storage = storage
@@ -97,6 +98,8 @@ class replay:
         self._all_hits: bool = True
         self._keys: list[str] = []
         self._suspended: bool = False
+        self._deterministic_time = deterministic_time
+        self._time_seq: int = 0
 
         if isinstance(validate, bool):
             self._validate = (
@@ -104,6 +107,30 @@ class replay:
             )
         else:
             self._validate = validate
+
+    def _next_time_seq(self) -> int:
+        self._time_seq += 1
+        return self._time_seq
+
+    def _time_key(self, seq: int) -> str:
+        raw = f"{self.identifier}:__time__:{seq}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def _record_time(self, seq: int, value: float | str) -> None:
+        key = self._time_key(seq)
+        self.storage.set(key, json.dumps(value))
+        self._track_key(key)
+
+    def _replay_time(self) -> tuple[int, float | str | None]:
+        seq = self._next_time_seq()
+        key = self._time_key(seq)
+        if not self.storage.exists(key):
+            return seq, None
+        try:
+            raw = self.storage.get(key)
+            return seq, json.loads(raw)
+        except (MissingMemoError, json.JSONDecodeError):
+            return seq, None
 
     def _keys_storage_key(self) -> str:
         """Compute the storage key for the session's key list."""
@@ -324,6 +351,7 @@ class replay:
             self._originals.clear()
             self._frame_globals = None
         self._seq = 0
+        self._time_seq = 0
 
     def _next_seq(self) -> int:
         self._seq += 1

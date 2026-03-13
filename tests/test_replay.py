@@ -1,8 +1,10 @@
 import hashlib
 import json
+from datetime import timezone
 
 import pytest
 
+from stickynote import replay_time
 from stickynote.replay import (
     ReplayHooks,
     StaleReplayError,
@@ -1271,3 +1273,68 @@ class TestCompleteSuspended:
         assert call_counts.get("maybe", 0) == 0
         assert results[0] == {"source": "users", "data": [1, 2, 3]}
         assert results[1] == "completed response"
+
+
+class TestReplayTime:
+    def setup_method(self):
+        call_counts.clear()
+
+    def test_now_returns_real_time_outside_replay(self):
+        from datetime import datetime
+
+        result = replay_time.now(timezone.utc)
+        assert isinstance(result, datetime)
+
+    def test_monotonic_returns_real_time_outside_replay(self):
+        result = replay_time.monotonic()
+        assert isinstance(result, float)
+
+    def test_now_recorded_and_replayed(self):
+        storage = MemoryStorage()
+        first_times = []
+        second_times = []
+
+        def capture_time():
+            call_counts["capture"] = call_counts.get("capture", 0) + 1
+            return replay_time.now(timezone.utc)
+
+        with replay("test", storage=storage, deterministic_time=True):
+            capture_time()
+            first_times.append(replay_time.now(timezone.utc))
+
+        call_counts.clear()
+        with replay("test", storage=storage, deterministic_time=True):
+            capture_time()
+            second_times.append(replay_time.now(timezone.utc))
+
+        assert first_times[0] == second_times[0]
+
+    def test_monotonic_recorded_and_replayed(self):
+        storage = MemoryStorage()
+        first_times = []
+        second_times = []
+
+        def capture_mono():
+            call_counts["capture"] = call_counts.get("capture", 0) + 1
+            return replay_time.monotonic()
+
+        with replay("test", storage=storage, deterministic_time=True):
+            capture_mono()
+            first_times.append(replay_time.monotonic())
+
+        call_counts.clear()
+        with replay("test", storage=storage, deterministic_time=True):
+            capture_mono()
+            second_times.append(replay_time.monotonic())
+
+        assert first_times[0] == second_times[0]
+
+    def test_deterministic_time_disabled_by_default(self):
+        storage = MemoryStorage()
+
+        def use_time():
+            call_counts["use_time"] = call_counts.get("use_time", 0) + 1
+            return str(replay_time.now(timezone.utc))
+
+        with replay("test", storage=storage):
+            use_time()
