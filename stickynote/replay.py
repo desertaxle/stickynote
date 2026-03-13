@@ -327,6 +327,8 @@ class replay:
             return False
         if id(obj) in self._exclude_ids:
             return False
+        if getattr(obj, "_stickynote_replayable", False):
+            return False
         module = getattr(obj, "__module__", None)
         if module is None:
             return False
@@ -523,9 +525,13 @@ class replay:
                 raise
             except Exception as exc:
                 if self._cache_exceptions:
-                    self._write_cache(key, exc, "exception", source_hash)
-                    if self._hooks is not None:
-                        self._hooks.on_exception_cached(key, seq, func_name, exc)
+                    try:
+                        self._write_cache(key, exc, "exception", source_hash)
+                    except Exception:
+                        logger.debug("Failed to cache exception for %r", func_name)
+                    else:
+                        if self._hooks is not None:
+                            self._hooks.on_exception_cached(key, seq, func_name, exc)
                 raise
             else:
                 self._write_cache(key, result, "value", source_hash)
@@ -571,9 +577,15 @@ class replay:
                 raise
             except Exception as exc:
                 if self._cache_exceptions:
-                    await self._write_cache_async(key, exc, "exception", source_hash)
-                    if self._hooks is not None:
-                        self._hooks.on_exception_cached(key, seq, func_name, exc)
+                    try:
+                        await self._write_cache_async(
+                            key, exc, "exception", source_hash
+                        )
+                    except Exception:
+                        logger.debug("Failed to cache exception for %r", func_name)
+                    else:
+                        if self._hooks is not None:
+                            self._hooks.on_exception_cached(key, seq, func_name, exc)
                 raise
             else:
                 await self._write_cache_async(key, result, "value", source_hash)
@@ -649,15 +661,22 @@ def replayable(func: Callable[..., Any]) -> Callable[..., Any]:
                 raise
             except Exception as exc:
                 if session._cache_exceptions:
-                    await session._write_cache_async(key, exc, "exception", source_hash)
-                    if session._hooks is not None:
-                        session._hooks.on_exception_cached(key, seq, func_name, exc)
+                    try:
+                        await session._write_cache_async(
+                            key, exc, "exception", source_hash
+                        )
+                    except Exception:
+                        logger.debug("Failed to cache exception for %r", func_name)
+                    else:
+                        if session._hooks is not None:
+                            session._hooks.on_exception_cached(key, seq, func_name, exc)
                 raise
             else:
                 await session._write_cache_async(key, result, "value", source_hash)
                 return result
 
         async_wrapper.__wrapped__ = func
+        async_wrapper._stickynote_replayable = True  # type: ignore[attr-defined]
         return async_wrapper
 
     @functools.wraps(func)
@@ -698,13 +717,18 @@ def replayable(func: Callable[..., Any]) -> Callable[..., Any]:
             raise
         except Exception as exc:
             if session._cache_exceptions:
-                session._write_cache(key, exc, "exception", source_hash)
-                if session._hooks is not None:
-                    session._hooks.on_exception_cached(key, seq, func_name, exc)
+                try:
+                    session._write_cache(key, exc, "exception", source_hash)
+                except Exception:
+                    logger.debug("Failed to cache exception for %r", func_name)
+                else:
+                    if session._hooks is not None:
+                        session._hooks.on_exception_cached(key, seq, func_name, exc)
             raise
         else:
             session._write_cache(key, result, "value", source_hash)
             return result
 
     sync_wrapper.__wrapped__ = func
+    sync_wrapper._stickynote_replayable = True  # type: ignore[attr-defined]
     return sync_wrapper
